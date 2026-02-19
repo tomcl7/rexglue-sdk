@@ -31,6 +31,7 @@ if(WIN32)
         debugging_win.cpp
         exception_handler_win.cpp
         filesystem_win.cpp
+        fiber_win32.cpp
         mapped_memory_win.cpp
         memory_win.cpp
     )
@@ -39,6 +40,7 @@ elseif(UNIX)
         debugging_posix.cpp
         exception_handler_posix.cpp
         filesystem_posix.cpp
+        fiber_posix.cpp
         mapped_memory_posix.cpp
         memory_posix.cpp
     )
