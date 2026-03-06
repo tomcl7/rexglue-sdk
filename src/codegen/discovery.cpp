@@ -562,8 +562,8 @@ std::optional<JumpTable> detectJumpTable(DecodedBinary& decoded, uint32_t bctrAd
     // PPC instructions must be 4-byte aligned
     if (target & 3) {
       REXCODEGEN_TRACE(
-          "detectJumpTable: bctr=0x{:08X} entry[{}] target=0x{:08X} not 4-byte aligned",
-          bctrAddr, i, target);
+          "detectJumpTable: bctr=0x{:08X} entry[{}] target=0x{:08X} not 4-byte aligned", bctrAddr,
+          i, target);
       if (jt.targets.empty())
         return std::nullopt;
       break;
