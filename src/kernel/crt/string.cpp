@@ -9,6 +9,12 @@
  */
 #include <cstring>
 
+#include <rex/platform.h>
+
+#if !REX_PLATFORM_WIN32
+#include <strings.h>
+#endif
+
 #include <rex/ppc/function.h>
 
 namespace rex::kernel::crt {
@@ -42,13 +48,27 @@ static char* native_strtok(char* s, const char* delim) {
 }
 
 static int native_stricmp(const char* s1, const char* s2) {
+#if REX_PLATFORM_WIN32
   return _stricmp(s1, s2);
+#else
+  return strcasecmp(s1, s2);
+#endif
 }
 
 static int native_strcpy_s(char* dst, size_t dstsz, const char* src) {
-  if (!dst || !src)
-    return 22;
+  if (!dst || !src || dstsz == 0)
+    return 22;  // EINVAL
+#if REX_PLATFORM_WIN32
   return strcpy_s(dst, dstsz, src);
+#else
+  const size_t src_len = std::strlen(src);
+  if (src_len + 1 > dstsz) {
+    dst[0] = '\0';
+    return 34;  // ERANGE
+  }
+  std::memcpy(dst, src, src_len + 1);
+  return 0;
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -76,7 +96,11 @@ static char* native_lstrcatA(char* dst, const char* src) {
 }
 
 static int native_lstrcmpiA(const char* s1, const char* s2) {
+#if REX_PLATFORM_WIN32
   return _stricmp(s1, s2);
+#else
+  return strcasecmp(s1, s2);
+#endif
 }
 
 }  // namespace rex::kernel::crt
