@@ -41,6 +41,10 @@ static void* native_XMemCpy(void* dst, const void* src, size_t n) {
   return std::memcpy(dst, src, n);
 }
 
+static void* native_XMemSet(void* dst, int val, size_t n) {
+  return std::memset(dst, val, n);
+}
+
 static void* native_XMemSet128(void* dst, int val, size_t n) {
   return std::memset(dst, val, n);
 }
@@ -74,6 +78,7 @@ REXCRT_EXPORT(rexcrt_memmove, rex::kernel::crt::native_memmove)
 REXCRT_EXPORT(rexcrt_memset, rex::kernel::crt::native_memset)
 REXCRT_EXPORT(rexcrt_memchr, rex::kernel::crt::native_memchr)
 REXCRT_EXPORT(rexcrt_XMemCpy, rex::kernel::crt::native_XMemCpy)
+REXCRT_EXPORT(rexcrt_XMemSet, rex::kernel::crt::native_XMemSet)
 REXCRT_EXPORT(rexcrt_XMemSet128, rex::kernel::crt::native_XMemSet128)
 REXCRT_EXPORT(rexcrt_memset_vmx, rex::kernel::crt::native_memset_vmx)
 REXCRT_EXPORT(rexcrt_memcpy_s, rex::kernel::crt::native_memcpy_s)
