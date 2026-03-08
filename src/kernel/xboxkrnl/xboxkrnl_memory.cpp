@@ -113,7 +113,7 @@ ppc_u32_result_t NtAllocateVirtualMemory_entry(ppc_pu32_t base_addr_ptr, ppc_pu3
   if (*base_addr_ptr != 0) {
     // ignore specified page size when base address is specified.
     auto heap = kernel_memory()->LookupHeap(*base_addr_ptr);
-    if (heap->heap_type() != memory::HeapType::kGuestVirtual) {
+    if (!heap || heap->heap_type() != memory::HeapType::kGuestVirtual) {
       return X_STATUS_INVALID_PARAMETER;
     }
     page_size = heap->page_size();
@@ -130,7 +130,9 @@ ppc_u32_result_t NtAllocateVirtualMemory_entry(ppc_pu32_t base_addr_ptr, ppc_pu3
   // For some reason, some games pass in negative sizes.
   uint32_t adjusted_size =
       int32_t(*region_size_ptr) < 0 ? -int32_t(region_size_ptr.value()) : region_size_ptr.value();
-  adjusted_size = rex::round_up(adjusted_size, page_size);
+  // Use 64KB allocation granularity when no base address is specified,
+  // matching Xbox 360 behavior. With a base address, use the heap's page size.
+  adjusted_size = rex::round_up(adjusted_size, adjusted_base ? page_size : 64 * 1024);
 
   // Allocate.
   uint32_t allocation_type = 0;
@@ -299,7 +301,17 @@ struct X_MEMORY_BASIC_INFORMATION {
 };
 
 ppc_u32_result_t NtQueryVirtualMemory_entry(
-    ppc_u32_t base_address, ppc_ptr_t<X_MEMORY_BASIC_INFORMATION> memory_basic_information_ptr) {
+    ppc_u32_t base_address, ppc_ptr_t<X_MEMORY_BASIC_INFORMATION> memory_basic_information_ptr,
+    ppc_u32_t region_type) {
+  switch ((uint32_t)region_type) {
+    case 0:
+    case 1:
+    case 2:
+      break;
+    default:
+      return X_STATUS_INVALID_PARAMETER;
+  }
+
   auto heap = kernel_state()->memory()->LookupHeap(base_address);
   memory::HeapAllocationInfo alloc_info;
   if (heap == nullptr || !heap->QueryRegionInfo(base_address, &alloc_info)) {
@@ -424,8 +436,16 @@ void MmSetAddressProtect_entry(ppc_pvoid_t base_address, ppc_u32_t region_size,
     return;
   }
 
-  uint32_t protect = FromXdkProtectFlags(protect_bits);
   auto heap = kernel_memory()->LookupHeap(base_address.guest_address());
+  if (!heap) {
+    return;
+  }
+  // Don't allow protection changes on XEX memory.
+  if (heap->heap_type() == memory::HeapType::kGuestXex) {
+    return;
+  }
+
+  uint32_t protect = FromXdkProtectFlags(protect_bits);
   heap->Protect(base_address.guest_address(), region_size, protect);
 }
 
@@ -485,7 +505,7 @@ ppc_u32_result_t MmQueryStatistics_entry(ppc_ptr_t<X_MM_QUERY_STATISTICS_RESULT>
   stats_ptr->size = size;
 
   stats_ptr->total_physical_pages = 0x00020000;  // 512mb / 4kb pages
-  stats_ptr->kernel_pages = 0x00000300;
+  stats_ptr->kernel_pages = 0x00000100;
 
   // TODO(gibbed): maybe use LookupHeapByType instead?
   auto heap_a = kernel_memory()->LookupHeap(0xA0000000);
@@ -507,7 +527,8 @@ ppc_u32_result_t MmQueryStatistics_entry(ppc_ptr_t<X_MM_QUERY_STATISTICS_RESULT>
 
   assert_true(used_pages < stats_ptr->total_physical_pages);
 
-  stats_ptr->title.available_pages = stats_ptr->total_physical_pages - used_pages;
+  stats_ptr->title.available_pages =
+      stats_ptr->total_physical_pages - stats_ptr->kernel_pages - used_pages;
   stats_ptr->title.total_virtual_memory_bytes = 0x2FFF0000;     // TODO(gibbed): FIXME
   stats_ptr->title.reserved_virtual_memory_bytes = 0x00160000;  // TODO(gibbed): FIXME
   stats_ptr->title.physical_pages = 0x00001000;                 // TODO(gibbed): FIXME
@@ -561,18 +582,29 @@ ppc_u32_result_t MmMapIoSpace_entry(ppc_u32_t unk0, ppc_pvoid_t src_address, ppc
   return src_address.guest_address();
 }
 
+struct X_POOL_ALLOC_HEADER {
+  rex::be<uint16_t> unk_0;
+  uint8_t unk_2;
+  uint8_t unk_3;
+  rex::be<uint32_t> tag;
+};
+static_assert_size(X_POOL_ALLOC_HEADER, 8);
+
 ppc_u32_result_t ExAllocatePoolTypeWithTag_entry(ppc_u32_t size, ppc_u32_t tag, ppc_u32_t zero) {
-  uint32_t alignment = 8;
-  uint32_t adjusted_size = size;
-  if (adjusted_size < 4 * 1024) {
-    adjusted_size = rex::round_up(adjusted_size, 4 * 1024);
+  if (size <= 0xFD8) {
+    uint32_t adjusted_size = size + sizeof(X_POOL_ALLOC_HEADER);
+    uint32_t addr = kernel_state()->memory()->SystemHeapAlloc(adjusted_size, 64);
+    if (!addr)
+      return 0;
+    auto header = kernel_memory()->TranslateVirtual<X_POOL_ALLOC_HEADER*>(addr);
+    header->unk_0 = 0;
+    header->unk_2 = 170;  // magic marker
+    header->unk_3 = 0;
+    header->tag = (uint32_t)tag;
+    return addr + sizeof(X_POOL_ALLOC_HEADER);
   } else {
-    alignment = 4 * 1024;
+    return kernel_state()->memory()->SystemHeapAlloc(size, 4096);
   }
-
-  uint32_t addr = kernel_state()->memory()->SystemHeapAlloc(adjusted_size, alignment);
-
-  return addr;
 }
 
 ppc_u32_result_t ExAllocatePool_entry(ppc_u32_t size) {
@@ -581,12 +613,27 @@ ppc_u32_result_t ExAllocatePool_entry(ppc_u32_t size) {
 }
 
 void ExFreePool_entry(ppc_pvoid_t base_address) {
-  kernel_state()->memory()->SystemHeapFree(base_address.guest_address());
+  uint32_t addr = base_address.guest_address();
+  if ((addr & (4096 - 1)) == 0) {
+    // Page-aligned: large allocation with no pool header.
+    kernel_state()->memory()->SystemHeapFree(addr);
+  } else {
+    // Small allocation: subtract pool header to get real alloc base.
+    kernel_state()->memory()->SystemHeapFree(addr - sizeof(X_POOL_ALLOC_HEADER));
+  }
 }
 
 ppc_u32_result_t KeGetImagePageTableEntry_entry(ppc_pvoid_t address) {
-  // Unknown
-  return 1;
+  auto heap = kernel_memory()->LookupHeap(address.guest_address());
+  if (!heap || heap->heap_type() != memory::HeapType::kGuestXex) {
+    return 0;
+  }
+  uint32_t result = address.guest_address() - heap->heap_base();
+  result /= heap->page_size();
+  if (heap->page_size() < 65536) {
+    result |= 0x40000000;
+  }
+  return result & 0x400FFFFF;
 }
 
 ppc_u32_result_t KeLockL2_entry() {
