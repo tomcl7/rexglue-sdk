@@ -740,6 +740,24 @@ ppc_u32_result_t NtCreateTimer_entry(ppc_pu32_t handle_ptr, ppc_pvoid_t obj_attr
   return X_STATUS_SUCCESS;
 }
 
+void KeInitializeTimerEx_entry(ppc_ptr_t<X_KTIMER> timer_ptr, ppc_u32_t timer_type,
+                               ppc_u32_t proc_type) {
+  assert_true(timer_type == 0 || timer_type == 1);
+  assert_true(proc_type < 3);
+  // Other fields are unmodified; they must carry through multiple calls.
+  timer_ptr->header.process_type = static_cast<uint8_t>(proc_type & 0xFF);
+  timer_ptr->header.inserted = 0;
+  timer_ptr->header.type = static_cast<uint8_t>(timer_type + 8);
+  timer_ptr->header.signal_state = 0;
+  // Initialize wait list to point to itself (empty list).
+  uint32_t wait_list_addr =
+      timer_ptr.guest_address() + offsetof(X_DISPATCH_HEADER, wait_list_flink);
+  timer_ptr->header.wait_list_flink = wait_list_addr;
+  timer_ptr->header.wait_list_blink = wait_list_addr;
+  timer_ptr->due_time = 0;
+  timer_ptr->period = 0;
+}
+
 ppc_u32_result_t NtSetTimerEx_entry(ppc_u32_t timer_handle, ppc_pu64_t due_time_ptr,
                                     ppc_pvoid_t routine_ptr /*PTIMERAPCROUTINE*/, ppc_u32_t unk_one,
                                     ppc_pvoid_t routine_arg, ppc_u32_t resume, ppc_u32_t period_ms,
@@ -1418,6 +1436,7 @@ XBOXKRNL_EXPORT(__imp__NtReleaseMutant, rex::kernel::xboxkrnl::NtReleaseMutant_e
 XBOXKRNL_EXPORT(__imp__NtCreateTimer, rex::kernel::xboxkrnl::NtCreateTimer_entry)
 XBOXKRNL_EXPORT(__imp__NtSetTimerEx, rex::kernel::xboxkrnl::NtSetTimerEx_entry)
 XBOXKRNL_EXPORT(__imp__NtCancelTimer, rex::kernel::xboxkrnl::NtCancelTimer_entry)
+XBOXKRNL_EXPORT(__imp__KeInitializeTimerEx, rex::kernel::xboxkrnl::KeInitializeTimerEx_entry)
 XBOXKRNL_EXPORT(__imp__KeWaitForSingleObject, rex::kernel::xboxkrnl::KeWaitForSingleObject_entry)
 XBOXKRNL_EXPORT(__imp__NtWaitForSingleObjectEx,
                 rex::kernel::xboxkrnl::NtWaitForSingleObjectEx_entry)
@@ -1482,7 +1501,7 @@ XBOXKRNL_EXPORT_STUB(__imp__KeInitializeDeviceQueue);
 XBOXKRNL_EXPORT_STUB(__imp__KeInitializeInterrupt);
 XBOXKRNL_EXPORT_STUB(__imp__KeInitializeMutant);
 XBOXKRNL_EXPORT_STUB(__imp__KeInitializeQueue);
-XBOXKRNL_EXPORT_STUB(__imp__KeInitializeTimerEx);
+// XBOXKRNL_EXPORT_STUB(__imp__KeInitializeTimerEx); -- implemented below
 XBOXKRNL_EXPORT_STUB(__imp__KeIpiGenericCall);
 XBOXKRNL_EXPORT_STUB(__imp__KeQueryBackgroundProcessors);
 XBOXKRNL_EXPORT_STUB(__imp__KeQueryInterruptTime);
