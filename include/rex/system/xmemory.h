@@ -454,7 +454,7 @@ class Memory {
                            uint32_t system_heap_flags = kSystemHeapDefault);
 
   // Frees memory allocated with SystemHeapAlloc.
-  void SystemHeapFree(uint32_t address);
+  void SystemHeapFree(uint32_t address, uint32_t* out_region_size = nullptr);
 
   // Gets the heap for the address space containing the given address.
   const BaseHeap* LookupHeap(uint32_t address) const;
@@ -465,6 +465,11 @@ class Memory {
 
   // Gets the heap with the given properties.
   BaseHeap* LookupHeapByType(bool physical, uint32_t page_size);
+
+  // Aggregates page statistics across the given heaps.
+  void GetHeapsPageStatsSummary(const BaseHeap* const* provided_heaps, size_t heaps_count,
+                                uint32_t& unreserved_pages, uint32_t& reserved_pages,
+                                uint32_t& used_pages, uint32_t& reserved_bytes);
 
   // Gets the physical base heap.
   VirtualHeap* GetPhysicalHeap();

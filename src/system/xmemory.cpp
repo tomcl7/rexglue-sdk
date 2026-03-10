@@ -545,13 +545,29 @@ uint32_t Memory::SystemHeapAlloc(uint32_t size, uint32_t alignment, uint32_t sys
   return address;
 }
 
-void Memory::SystemHeapFree(uint32_t address) {
+void Memory::SystemHeapFree(uint32_t address, uint32_t* out_region_size) {
   if (!address) {
     return;
   }
   // TODO(benvanik): lightweight pool.
   auto heap = LookupHeap(address);
-  heap->Release(address);
+  heap->Release(address, out_region_size);
+}
+
+void Memory::GetHeapsPageStatsSummary(const BaseHeap* const* provided_heaps, size_t heaps_count,
+                                      uint32_t& unreserved_pages, uint32_t& reserved_pages,
+                                      uint32_t& used_pages, uint32_t& reserved_bytes) {
+  auto lock = global_critical_region_.Acquire();
+  for (size_t i = 0; i < heaps_count; i++) {
+    const BaseHeap* heap = provided_heaps[i];
+    uint32_t heap_unreserved = heap->unreserved_page_count();
+    uint32_t heap_reserved = heap->reserved_page_count();
+
+    unreserved_pages += heap_unreserved;
+    reserved_pages += heap_reserved;
+    used_pages += ((heap->total_page_count() - heap_unreserved) * heap->page_size()) / 4096;
+    reserved_bytes += heap_reserved * heap->page_size();
+  }
 }
 
 void Memory::DumpMap() {

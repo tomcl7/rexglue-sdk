@@ -517,30 +517,25 @@ ppc_u32_result_t MmQueryStatistics_entry(ppc_ptr_t<X_MM_QUERY_STATISTICS_RESULT>
   stats_ptr->total_physical_pages = 0x00020000;  // 512mb / 4kb pages
   stats_ptr->kernel_pages = 0x00000100;
 
-  // TODO(gibbed): maybe use LookupHeapByType instead?
-  auto heap_a = kernel_memory()->LookupHeap(0xA0000000);
-  auto heap_c = kernel_memory()->LookupHeap(0xC0000000);
-  auto heap_e = kernel_memory()->LookupHeap(0xE0000000);
-
-  assert_not_null(heap_a);
-  assert_not_null(heap_c);
-  assert_not_null(heap_e);
-
-#define GET_USED_PAGE_COUNT(x) (x->GetTotalPageCount() - x->GetUnreservedPageCount())
-#define GET_USED_PAGE_SIZE(x) ((GET_USED_PAGE_COUNT(x) * x->page_size()) / 4096)
+  uint32_t reserved_pages = 0;
+  uint32_t unreserved_pages = 0;
   uint32_t used_pages = 0;
-  used_pages += GET_USED_PAGE_SIZE(heap_a);
-  used_pages += GET_USED_PAGE_SIZE(heap_c);
-  used_pages += GET_USED_PAGE_SIZE(heap_e);
-#undef GET_USED_PAGE_SIZE
-#undef GET_USED_PAGE_COUNT
+  uint32_t reserved_pages_bytes = 0;
+  const memory::BaseHeap* physical_heaps[3] = {
+      kernel_memory()->LookupHeapByType(true, 0x1000),
+      kernel_memory()->LookupHeapByType(true, 0x10000),
+      kernel_memory()->LookupHeapByType(true, 0x1000000)};
+
+  kernel_memory()->GetHeapsPageStatsSummary(
+      physical_heaps, std::size(physical_heaps), unreserved_pages,
+      reserved_pages, used_pages, reserved_pages_bytes);
 
   assert_true(used_pages < stats_ptr->total_physical_pages);
 
   stats_ptr->title.available_pages =
       stats_ptr->total_physical_pages - stats_ptr->kernel_pages - used_pages;
-  stats_ptr->title.total_virtual_memory_bytes = 0x2FFF0000;     // TODO(gibbed): FIXME
-  stats_ptr->title.reserved_virtual_memory_bytes = 0x00160000;  // TODO(gibbed): FIXME
+  stats_ptr->title.total_virtual_memory_bytes = 0x2FFE0000;
+  stats_ptr->title.reserved_virtual_memory_bytes = reserved_pages_bytes;
   stats_ptr->title.physical_pages = 0x00001000;                 // TODO(gibbed): FIXME
   stats_ptr->title.pool_pages = 0x00000010;
   stats_ptr->title.stack_pages = 0x00000100;
@@ -593,7 +588,8 @@ ppc_u32_result_t MmMapIoSpace_entry(ppc_u32_t unk0, ppc_pvoid_t src_address, ppc
 }
 
 struct X_POOL_ALLOC_HEADER {
-  rex::be<uint16_t> unk_0;
+  uint8_t unk_0;
+  uint8_t unk_1;
   uint8_t unk_2;
   uint8_t unk_3;
   rex::be<uint32_t> tag;
@@ -607,9 +603,7 @@ ppc_u32_result_t ExAllocatePoolTypeWithTag_entry(ppc_u32_t size, ppc_u32_t tag, 
     if (!addr)
       return 0;
     auto header = kernel_memory()->TranslateVirtual<X_POOL_ALLOC_HEADER*>(addr);
-    header->unk_0 = 0;
     header->unk_2 = 170;  // magic marker
-    header->unk_3 = 0;
     header->tag = (uint32_t)tag;
     return addr + sizeof(X_POOL_ALLOC_HEADER);
   } else {
@@ -677,6 +671,68 @@ ppc_u32_result_t MmDeleteKernelStack_entry(ppc_pvoid_t stack_base, ppc_pvoid_t s
   return X_STATUS_UNSUCCESSFUL;
 }
 
+ppc_u32_result_t ExAllocatePoolWithTag_entry(ppc_u32_t numbytes, ppc_u32_t tag, ppc_u32_t zero) {
+  return ExAllocatePoolTypeWithTag_entry(numbytes, tag, zero);
+}
+
+ppc_u32_result_t MmIsAddressValid_entry(ppc_u32_t address) {
+  auto heap = kernel_memory()->LookupHeap(address);
+  if (!heap) {
+    return 0;
+  }
+  return heap->QueryRangeAccess(address, address) != rex::memory::PageAccess::kNoAccess;
+}
+
+ppc_u32_result_t NtAllocateEncryptedMemory_entry(ppc_u32_t unk, ppc_u32_t region_size,
+                                                  ppc_pu32_t base_addr_ptr) {
+  if (!region_size) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  const uint32_t region_size_adjusted = rex::round_up(uint32_t(region_size), 64 * 1024);
+  if (region_size_adjusted > 16 * 1024 * 1024) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  uint32_t out_address = 0;
+  auto heap = kernel_memory()->LookupHeap(0x8C000000);
+  if (!heap) {
+    return X_STATUS_UNSUCCESSFUL;
+  }
+  if (!heap->AllocRange(0x8C000000, 0x8FFFFFFF, region_size_adjusted, 64 * 1024,
+                        memory::kMemoryAllocationCommit,
+                        memory::kMemoryProtectRead | memory::kMemoryProtectWrite,
+                        false, &out_address)) {
+    return X_STATUS_UNSUCCESSFUL;
+  }
+
+  REXKRNL_IMPORT_RESULT("NtAllocateEncryptedMemory", "addr={:#x}", out_address);
+  *base_addr_ptr = out_address;
+  return X_STATUS_SUCCESS;
+}
+
+ppc_u32_result_t NtFreeEncryptedMemory_entry(ppc_u32_t region_type,
+                                              ppc_pu32_t base_address_ptr) {
+  if (!base_address_ptr) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  auto heap = kernel_memory()->LookupHeap(0x80000000);
+  if (!heap) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+  const uint32_t encrypt_address =
+      heap->heap_base() + heap->page_size() * (*base_address_ptr);
+
+  auto encrypt_heap = kernel_memory()->LookupHeap(encrypt_address);
+  if (!encrypt_heap || encrypt_heap->heap_type() != memory::HeapType::kGuestXex) {
+    return X_STATUS_INVALID_PARAMETER;
+  }
+
+  kernel_memory()->SystemHeapFree(encrypt_address);
+  return X_STATUS_SUCCESS;
+}
+
 }  // namespace rex::kernel::xboxkrnl
 
 XBOXKRNL_EXPORT(__imp__NtAllocateVirtualMemory,
@@ -706,19 +762,22 @@ XBOXKRNL_EXPORT(__imp__KeUnlockL2, rex::kernel::xboxkrnl::KeUnlockL2_entry)
 XBOXKRNL_EXPORT(__imp__MmCreateKernelStack, rex::kernel::xboxkrnl::MmCreateKernelStack_entry)
 XBOXKRNL_EXPORT(__imp__MmDeleteKernelStack, rex::kernel::xboxkrnl::MmDeleteKernelStack_entry)
 
-XBOXKRNL_EXPORT_STUB(__imp__ExAllocatePoolWithTag);
+XBOXKRNL_EXPORT(__imp__ExAllocatePoolWithTag,
+                rex::kernel::xboxkrnl::ExAllocatePoolWithTag_entry)
 XBOXKRNL_EXPORT_STUB(__imp__ExQueryPoolBlockSize);
 XBOXKRNL_EXPORT_STUB(__imp__MmDoubleMapMemory);
 XBOXKRNL_EXPORT_STUB(__imp__MmUnmapMemory);
-XBOXKRNL_EXPORT_STUB(__imp__MmIsAddressValid);
+XBOXKRNL_EXPORT(__imp__MmIsAddressValid, rex::kernel::xboxkrnl::MmIsAddressValid_entry)
 XBOXKRNL_EXPORT_STUB(__imp__MmLockAndMapSegmentArray);
 XBOXKRNL_EXPORT_STUB(__imp__MmLockUnlockBufferPages);
 XBOXKRNL_EXPORT_STUB(__imp__MmPersistPhysicalMemoryAllocation);
 XBOXKRNL_EXPORT_STUB(__imp__MmSplitPhysicalMemoryAllocation);
 XBOXKRNL_EXPORT_STUB(__imp__MmUnlockAndUnmapSegmentArray);
 XBOXKRNL_EXPORT_STUB(__imp__MmUnmapIoSpace);
-XBOXKRNL_EXPORT_STUB(__imp__NtAllocateEncryptedMemory);
-XBOXKRNL_EXPORT_STUB(__imp__NtFreeEncryptedMemory);
+XBOXKRNL_EXPORT(__imp__NtAllocateEncryptedMemory,
+                rex::kernel::xboxkrnl::NtAllocateEncryptedMemory_entry)
+XBOXKRNL_EXPORT(__imp__NtFreeEncryptedMemory,
+                rex::kernel::xboxkrnl::NtFreeEncryptedMemory_entry)
 XBOXKRNL_EXPORT_STUB(__imp__ExDebugMonitorService);
 XBOXKRNL_EXPORT_STUB(__imp__MmDbgReadCheck);
 XBOXKRNL_EXPORT_STUB(__imp__MmDbgReleaseAddress);
