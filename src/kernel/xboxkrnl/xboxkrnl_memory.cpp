@@ -216,7 +216,7 @@ ppc_u32_result_t NtProtectVirtualMemory_entry(ppc_pu32_t base_addr_ptr, ppc_pu32
   if (protect_bits & (X_PAGE_EXECUTE | X_PAGE_EXECUTE_READ | X_PAGE_EXECUTE_READWRITE |
                       X_PAGE_EXECUTE_WRITECOPY)) {
     REXKRNL_WARN("Game setting EXECUTE bit on protect");
-    return X_STATUS_ACCESS_DENIED;
+    return X_STATUS_INVALID_PAGE_PROTECTION;
   }
 
   auto heap = kernel_memory()->LookupHeap(*base_addr_ptr);
@@ -390,6 +390,10 @@ ppc_u32_result_t MmAllocatePhysicalMemoryEx_entry(ppc_u32_t flags, ppc_u32_t reg
   // min_addr_range/max_addr_range are bounds in physical memory, not virtual.
   uint32_t heap_base = heap->heap_base();
   uint32_t heap_physical_address_offset = heap->GetPhysicalAddress(heap_base);
+  // NOTE: xenia-canary has a per-title workaround (ignore_offset_for_ranged_allocations cvar)
+  // for title 545108B4 where min_addr_range comparison fails due to 0x1000 offset.
+  // If needed, set heap_physical_address_offset = 0 when min_addr_range && max_addr_range.
+  // Reference: xenia-canary 81aaf98e0.
   uint32_t heap_min_addr = rex::sat_sub(min_addr_range.value(), heap_physical_address_offset);
   uint32_t heap_max_addr = rex::sat_sub(max_addr_range.value(), heap_physical_address_offset);
   uint32_t heap_size = heap->heap_size();
@@ -434,21 +438,24 @@ ppc_u32_result_t MmQueryAddressProtect_entry(ppc_u32_t base_address) {
 
 void MmSetAddressProtect_entry(ppc_pvoid_t base_address, ppc_u32_t region_size,
                                ppc_u32_t protect_bits) {
-  if (!protect_bits) {
-    REXKRNL_ERROR("MmSetAddressProtect: Failed due to incorrect protect_bits");
-    return;
-  }
+  constexpr uint32_t required_protect_bits =
+      X_PAGE_NOACCESS | X_PAGE_READONLY | X_PAGE_READWRITE |
+      X_PAGE_EXECUTE_READ | X_PAGE_EXECUTE_READWRITE;
 
-  auto heap = kernel_memory()->LookupHeap(base_address.guest_address());
-  if (!heap) {
-    return;
-  }
-  // Don't allow protection changes on XEX memory.
-  if (heap->heap_type() == memory::HeapType::kGuestXex) {
+  if (rex::bit_count(uint32_t(protect_bits) & required_protect_bits) != 1) {
+    assert_false(rex::bit_count(uint32_t(protect_bits) & required_protect_bits) > 1);
     return;
   }
 
   uint32_t protect = FromXdkProtectFlags(protect_bits);
+  auto heap = kernel_memory()->LookupHeap(base_address.guest_address());
+  if (!heap) {
+    return;
+  }
+  if (heap->heap_type() == memory::HeapType::kGuestXex) {
+    return;
+  }
+
   heap->Protect(base_address.guest_address(), region_size, protect);
 }
 

@@ -194,6 +194,15 @@ bool Memory::Initialize() {
                               memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
                               memory::kMemoryProtectRead | memory::kMemoryProtectWrite);
 
+  // Pre-commit the entire physical memory range so the GPU can access it
+  // without page faults. Reference: xenia-canary 5f5be0668.
+  for (size_t i = 1; i <= 16; i++) {
+    rex::memory::AllocFixed(heaps_.physical.TranslateRelative(i << 24),
+                            heaps_.physical.page_size() * 0x10000,
+                            rex::memory::AllocationType::kCommit,
+                            rex::memory::PageAccess::kReadWrite);
+  }
+
   // Install MMIO handler for physical address translation and MMIO ranges
   mmio_handler_ = runtime::MMIOHandler::Install(
       virtual_membase_, physical_membase_, physical_membase_ + 0x1FFFFFFF, HostToGuestVirtualThunk,
@@ -209,6 +218,17 @@ bool Memory::Initialize() {
   uint32_t unk_phys_alloc;
   heaps_.vA0000000.Alloc(0x340000, 64 * 1024, memory::kMemoryAllocationReserve,
                          memory::kMemoryProtectNoAccess, true, &unk_phys_alloc);
+
+  // Allocate region at start of XEX range. Title 544307D5 explicitly
+  // accesses 0x8000001C and expects a specific constant value.
+  // Reference: xenia-canary 78f97f8ff.
+  uint32_t unknown_xex_range;
+  heaps_.v80000000.Alloc(0x40000, 4 * 1024, memory::kMemoryAllocationCommit,
+                         memory::kMemoryProtectRead | memory::kMemoryProtectWrite, false,
+                         &unknown_xex_range);
+
+  uint32_t value_to_write = rex::byte_swap(uint32_t(0x2a6e3f38));
+  std::memcpy(TranslateVirtual(0x80000000 + 0x1C), &value_to_write, sizeof(uint32_t));
 
   return true;
 }
@@ -515,9 +535,10 @@ uint32_t Memory::SystemHeapAlloc(uint32_t size, uint32_t alignment, uint32_t sys
   bool is_physical = !!(system_heap_flags & memory::kSystemHeapPhysical);
   auto heap = LookupHeapByType(is_physical, 4096);
   uint32_t address;
-  if (!heap->Alloc(size, alignment,
-                   memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
-                   memory::kMemoryProtectRead | memory::kMemoryProtectWrite, false, &address)) {
+  if (!heap->AllocSystemHeap(size, alignment,
+                             memory::kMemoryAllocationReserve | memory::kMemoryAllocationCommit,
+                             memory::kMemoryProtectRead | memory::kMemoryProtectWrite,
+                             false, &address)) {
     return 0;
   }
   Zero(address, size);
@@ -903,7 +924,33 @@ bool BaseHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_type
   *out_address = 0;
   size = rex::round_up(size, page_size_);
   alignment = rex::round_up(alignment, page_size_);
+
+  // Reserve address space at the top for thread stacks.
+  // 0x3XXXXXXX is for system threads, 0x7XXXXXXX is for title threads.
+  uint32_t heap_virtual_guest_offset = 0;
+  if (heap_type_ == memory::HeapType::kGuestVirtual) {
+    heap_virtual_guest_offset = 0x10000000;
+    if (page_size_ == 0x10000) {
+      heap_virtual_guest_offset = 0x0F000000;
+    }
+  }
+
   uint32_t low_address = heap_base_;
+  uint32_t high_address = heap_base_ + (heap_size_ - 1) - heap_virtual_guest_offset;
+  return AllocRange(low_address, high_address, size, alignment, allocation_type, protect, top_down,
+                    out_address);
+}
+
+bool BaseHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t allocation_type,
+                               uint32_t protect, bool top_down, uint32_t* out_address) {
+  *out_address = 0;
+  size = rex::round_up(size, page_size_);
+  alignment = rex::round_up(alignment, page_size_);
+
+  uint32_t low_address = heap_base_;
+  if (heap_type_ == memory::HeapType::kGuestVirtual) {
+    low_address = heap_base_ + heap_size_ - 0x10000000;
+  }
   uint32_t high_address = heap_base_ + (heap_size_ - 1);
   return AllocRange(low_address, high_address, size, alignment, allocation_type, protect, top_down,
                     out_address);
@@ -1549,6 +1596,11 @@ bool PhysicalHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint3
   }
   *out_address = address;
   return true;
+}
+
+bool PhysicalHeap::AllocSystemHeap(uint32_t size, uint32_t alignment, uint32_t allocation_type,
+                                   uint32_t protect, bool top_down, uint32_t* out_address) {
+  return Alloc(size, alignment, allocation_type, protect, top_down, out_address);
 }
 
 bool PhysicalHeap::Decommit(uint32_t address, uint32_t size) {
