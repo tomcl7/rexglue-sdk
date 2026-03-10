@@ -154,6 +154,9 @@ ppc_u32_result_t NtAllocateVirtualMemory_entry(ppc_pu32_t base_addr_ptr, ppc_pu3
 
   if (adjusted_base != 0) {
     heap = kernel_memory()->LookupHeap(adjusted_base);
+    if (!heap) {
+      return X_STATUS_INVALID_PARAMETER;
+    }
     if (heap->page_size() != page_size) {
       // Specified the wrong page size for the wrong heap.
       return X_STATUS_ACCESS_DENIED;

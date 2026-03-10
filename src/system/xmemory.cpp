@@ -678,9 +678,12 @@ PPCFunc* Memory::GetFunction(uint32_t guest_address) const {
 }
 
 rex::memory::PageAccess ToPageAccess(uint32_t protect) {
-  if ((protect & memory::kMemoryProtectRead) && !(protect & memory::kMemoryProtectWrite)) {
+  bool is_writable =
+      (protect & memory::kMemoryProtectWrite) || (protect & memory::kMemoryProtectWriteCombine);
+
+  if ((protect & memory::kMemoryProtectRead) && !is_writable) {
     return rex::memory::PageAccess::kReadOnly;
-  } else if ((protect & memory::kMemoryProtectRead) && (protect & memory::kMemoryProtectWrite)) {
+  } else if ((protect & memory::kMemoryProtectRead) && is_writable) {
     return rex::memory::PageAccess::kReadWrite;
   } else {
     return rex::memory::PageAccess::kNoAccess;
@@ -721,8 +724,11 @@ void BaseHeap::Initialize(memory::Memory* memory, uint8_t* membase, HeapType hea
   heap_base_ = heap_base;
   heap_size_ = heap_size;
   page_size_ = page_size;
+  assert_true(rex::is_pow2(page_size_));
+  page_size_shift_ = rex::log2_floor(page_size_);
   host_address_offset_ = host_address_offset;
   page_table_.resize(heap_size / page_size);
+  unreserved_page_count_ = uint32_t(page_table_.size());
 }
 
 void BaseHeap::Dispose() {
@@ -965,6 +971,9 @@ bool BaseHeap::AllocFixed(uint32_t base_address, uint32_t size, uint32_t alignme
   for (uint32_t page_number = start_page_number; page_number <= end_page_number; ++page_number) {
     auto& page_entry = page_table_[page_number];
     if (allocation_type & memory::kMemoryAllocationReserve) {
+      if (!page_entry.state) {
+        unreserved_page_count_--;
+      }
       // Region is based on reservation.
       page_entry.base_address = start_page_number;
       page_entry.region_page_count = page_count;
@@ -1105,6 +1114,9 @@ bool BaseHeap::AllocRange(uint32_t low_address, uint32_t high_address, uint32_t 
   // Set page state.
   for (uint32_t page_number = start_page_number; page_number <= end_page_number; ++page_number) {
     auto& page_entry = page_table_[page_number];
+    if (!page_entry.state) {
+      unreserved_page_count_--;
+    }
     page_entry.base_address = start_page_number;
     page_entry.region_page_count = page_count;
     page_entry.allocation_protect = protect;
@@ -1194,6 +1206,7 @@ bool BaseHeap::Release(uint32_t base_address, uint32_t* out_region_size) {
   for (uint32_t page_number = base_page_number; page_number <= end_page_number; ++page_number) {
     auto& page_entry = page_table_[page_number];
     page_entry.qword = 0;
+    unreserved_page_count_++;
   }
 
   return true;
@@ -1298,7 +1311,7 @@ bool BaseHeap::QueryRegionInfo(uint32_t base_address, HeapAllocationInfo* out_in
   out_info->protect = 0;
   if (start_page_entry.state) {
     // Committed/reserved region.
-    out_info->allocation_base = start_page_entry.base_address * page_size_;
+    out_info->allocation_base = heap_base_ + start_page_entry.base_address * page_size_;
     out_info->allocation_protect = start_page_entry.allocation_protect;
     out_info->allocation_size = start_page_entry.region_page_count * page_size_;
     out_info->state = start_page_entry.state;
@@ -1380,14 +1393,28 @@ rex::memory::PageAccess BaseHeap::QueryRangeAccess(uint32_t low_address, uint32_
   }
   uint32_t low_page_number = (low_address - heap_base_) / page_size_;
   uint32_t high_page_number = (high_address - heap_base_) / page_size_;
-  uint32_t protect = memory::kMemoryProtectRead | memory::kMemoryProtectWrite;
+  bool all_readable = true;
+  bool all_writable = true;
   {
     auto global_lock = global_critical_region_.Acquire();
-    for (uint32_t i = low_page_number; protect && i <= high_page_number; ++i) {
-      protect &= page_table_[i].current_protect;
+    for (uint32_t i = low_page_number; i <= high_page_number; ++i) {
+      uint32_t page_protect = page_table_[i].current_protect;
+      if (!(page_protect & memory::kMemoryProtectRead)) {
+        all_readable = false;
+      }
+      if (!(page_protect & memory::kMemoryProtectWrite) &&
+          !(page_protect & memory::kMemoryProtectWriteCombine)) {
+        all_writable = false;
+      }
     }
   }
-  return ToPageAccess(protect);
+  if (all_readable && all_writable) {
+    return rex::memory::PageAccess::kReadWrite;
+  } else if (all_readable) {
+    return rex::memory::PageAccess::kReadOnly;
+  } else {
+    return rex::memory::PageAccess::kNoAccess;
+  }
 }
 
 VirtualHeap::VirtualHeap() = default;

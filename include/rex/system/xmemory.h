@@ -135,6 +135,10 @@ class BaseHeap {
   uint32_t GetTotalPageCount();
   uint32_t GetUnreservedPageCount();
 
+  uint32_t total_page_count() const { return uint32_t(page_table_.size()); }
+  uint32_t unreserved_page_count() const { return unreserved_page_count_; }
+  uint32_t reserved_page_count() const { return total_page_count() - unreserved_page_count(); }
+
   // Allocates pages with the given properties and allocation strategy.
   // This can reserve and commit the pages as well as set protection modes.
   // This will fail if not enough contiguous pages can be found.
@@ -200,7 +204,9 @@ class BaseHeap {
   uint32_t heap_base_;
   uint32_t heap_size_;
   uint32_t page_size_;
+  uint32_t page_size_shift_ = 0;
   uint32_t host_address_offset_;
+  uint32_t unreserved_page_count_ = 0;
   rex::thread::global_critical_region global_critical_region_;
   std::vector<PageEntry> page_table_;
 };
