@@ -203,27 +203,27 @@ XboxkrnlModule::XboxkrnlModule(Runtime* emulator, KernelState* kernel_state)
   auto kgg = kernel_state_->GetKernelGuestGlobals();
   assert_not_zero(kgg);
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x001B,
-      kgg + offsetof(KernelGuestGlobals, ExThreadObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, ExThreadObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x000E,
-      kgg + offsetof(KernelGuestGlobals, ExEventObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, ExEventObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x0012,
-      kgg + offsetof(KernelGuestGlobals, ExMutantObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, ExMutantObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x0017,
-      kgg + offsetof(KernelGuestGlobals, ExSemaphoreObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, ExSemaphoreObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x001C,
-      kgg + offsetof(KernelGuestGlobals, ExTimerObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, ExTimerObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x0036,
-      kgg + offsetof(KernelGuestGlobals, IoCompletionObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, IoCompletionObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x003A,
-      kgg + offsetof(KernelGuestGlobals, IoDeviceObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, IoDeviceObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x003E,
-      kgg + offsetof(KernelGuestGlobals, IoFileObjectType));
+                                       kgg + offsetof(KernelGuestGlobals, IoFileObjectType));
   export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x0106,
-      kgg + offsetof(KernelGuestGlobals, ObDirectoryObjectType));
-  export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x0112,
-      kgg + offsetof(KernelGuestGlobals, ObSymbolicLinkObjectType));
-  export_resolver_->SetVariableMapping("xboxkrnl.exe", 0x02DB,
-      kgg + offsetof(KernelGuestGlobals, UsbdBootEnumerationDoneEvent));
+                                       kgg + offsetof(KernelGuestGlobals, ObDirectoryObjectType));
+  export_resolver_->SetVariableMapping(
+      "xboxkrnl.exe", 0x0112, kgg + offsetof(KernelGuestGlobals, ObSymbolicLinkObjectType));
+  export_resolver_->SetVariableMapping(
+      "xboxkrnl.exe", 0x02DB, kgg + offsetof(KernelGuestGlobals, UsbdBootEnumerationDoneEvent));
 }
 
 static auto& get_xboxkrnl_exports() {

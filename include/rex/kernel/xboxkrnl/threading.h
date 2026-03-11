@@ -33,13 +33,13 @@ uint32_t xeKeSetEvent(rex::system::X_KEVENT* event_ptr, uint32_t increment, uint
 // Guest-memory spinlock helpers (PPCContext* for r13/PCR access)
 uint32_t xeKeKfAcquireSpinLock(PPCContext* ctx, rex::X_KSPINLOCK* lock, bool change_irql = true);
 void xeKeKfReleaseSpinLock(PPCContext* ctx, rex::X_KSPINLOCK* lock, uint32_t old_irql,
-                            bool change_irql = true);
+                           bool change_irql = true);
 
 // Guest-memory APC helpers
 void xeKeInitializeApc(rex::system::XAPC* apc, uint32_t thread_ptr, uint32_t kernel_routine,
-                        uint32_t rundown_routine, uint32_t normal_routine, uint32_t apc_mode,
-                        uint32_t normal_context);
+                       uint32_t rundown_routine, uint32_t normal_routine, uint32_t apc_mode,
+                       uint32_t normal_context);
 uint32_t xeKeInsertQueueApc(rex::system::XAPC* apc, uint32_t arg1, uint32_t arg2,
-                             uint32_t priority_increment, PPCContext* ctx);
+                            uint32_t priority_increment, PPCContext* ctx);
 
 }  // namespace rex::kernel::xboxkrnl

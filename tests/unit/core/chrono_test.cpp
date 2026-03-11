@@ -256,29 +256,34 @@ TEST_CASE("calendar recomposition: decompose then recompose round-trips", "[chro
 
 TEST_CASE("year_month_day::ok rejects invalid dates", "[chrono]") {
   // Feb 30 - never valid
-  CHECK_FALSE(std::chrono::year_month_day{std::chrono::year{2000}, std::chrono::month{2},
-                                          std::chrono::day{30}}
-                  .ok());
+  CHECK_FALSE(std::chrono::year_month_day{
+      std::chrono::year{2000}, std::chrono::month{2},
+      std::chrono::day{
+          30}}.ok());
   // Month 13 - invalid month
-  CHECK_FALSE(std::chrono::year_month_day{std::chrono::year{2000}, std::chrono::month{13},
-                                          std::chrono::day{1}}
-                  .ok());
+  CHECK_FALSE(std::chrono::year_month_day{
+      std::chrono::year{2000}, std::chrono::month{13},
+      std::chrono::day{
+          1}}.ok());
   // Day 0 - invalid day
-  CHECK_FALSE(std::chrono::year_month_day{std::chrono::year{2000}, std::chrono::month{1},
-                                          std::chrono::day{0}}
-                  .ok());
+  CHECK_FALSE(std::chrono::year_month_day{
+      std::chrono::year{2000}, std::chrono::month{1},
+      std::chrono::day{
+          0}}.ok());
   // Feb 29 in non-leap year
-  CHECK_FALSE(std::chrono::year_month_day{std::chrono::year{2001}, std::chrono::month{2},
-                                          std::chrono::day{29}}
-                  .ok());
+  CHECK_FALSE(std::chrono::year_month_day{
+      std::chrono::year{2001}, std::chrono::month{2},
+      std::chrono::day{
+          29}}.ok());
   // Feb 29 in leap year - valid
   CHECK(std::chrono::year_month_day{std::chrono::year{2000}, std::chrono::month{2},
                                     std::chrono::day{29}}
             .ok());
   // Century non-leap: 1900 is not a leap year
-  CHECK_FALSE(std::chrono::year_month_day{std::chrono::year{1900}, std::chrono::month{2},
-                                          std::chrono::day{29}}
-                  .ok());
+  CHECK_FALSE(std::chrono::year_month_day{
+      std::chrono::year{1900}, std::chrono::month{2},
+      std::chrono::day{
+          29}}.ok());
   // 400-year leap: 2000 is a leap year (already checked above, but explicit)
   CHECK(std::chrono::year_month_day{std::chrono::year{2000}, std::chrono::month{2},
                                     std::chrono::day{29}}
