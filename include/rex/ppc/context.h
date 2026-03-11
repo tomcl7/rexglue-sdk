@@ -23,6 +23,7 @@
 #include <unordered_map>
 
 #include <rex/chrono/clock.h>  // For mftb timebase access
+#include <rex/dbg.h>
 #include <rex/logging.h>
 #include <rex/ppc/memory.h>
 #include <rex/ppc/types.h>
@@ -124,7 +125,28 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
   (*(PPCFunc**)(x + PPC_IMAGE_BASE + PPC_IMAGE_SIZE + (uint64_t(uint32_t(y) - PPC_CODE_BASE) * 2)))
 
 #undef PPC_CALL_INDIRECT_FUNC
-#define PPC_CALL_INDIRECT_FUNC(x) PPC_LOOKUP_FUNC(base, x)(ctx, base);
+#define PPC_CALL_INDIRECT_FUNC(x)                                                               \
+  do {                                                                                          \
+    constexpr uint64_t kPpcIndirectThunkReserve = 0x10000ull;                                   \
+    const uint32_t _ppc_guest_target = static_cast<uint32_t>(x);                                \
+    PPCFunc* _ppc_target = nullptr;                                                             \
+    const uint64_t _ppc_guest_target_u64 = static_cast<uint64_t>(_ppc_guest_target);            \
+    if (_ppc_guest_target_u64 >= PPC_CODE_BASE &&                                               \
+        _ppc_guest_target_u64 < PPC_CODE_BASE + PPC_CODE_SIZE + kPpcIndirectThunkReserve) {     \
+      _ppc_target = PPC_LOOKUP_FUNC(base, _ppc_guest_target);                                   \
+    }                                                                                           \
+    if (!_ppc_target) {                                                                         \
+      REXCPU_ERROR(                                                                             \
+          "PPC indirect target unresolved: guest={:08X} lr={:08X} ctr={:08X} "                  \
+          "(code_range={:08X}-{:08X})",                                                         \
+          _ppc_guest_target, static_cast<uint32_t>(ctx.lr), static_cast<uint32_t>(ctx.ctr.u32), \
+          static_cast<uint32_t>(PPC_CODE_BASE),                                                 \
+          static_cast<uint32_t>(PPC_CODE_BASE + PPC_CODE_SIZE + kPpcIndirectThunkReserve));     \
+      ::rex::debug::Break();                                                                    \
+      std::abort();                                                                             \
+    }                                                                                           \
+    _ppc_target(ctx, base);                                                                     \
+  } while (0)
 
 #endif  // PPC_CONFIG_H_INCLUDED
 

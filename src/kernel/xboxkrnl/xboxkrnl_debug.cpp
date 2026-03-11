@@ -25,7 +25,16 @@
 namespace rex::kernel::xboxkrnl {
 using namespace rex::system;
 
+#if defined(__GNUC__) || defined(__clang__)
+extern "C" void rex_title_dbg_breakpoint_hook() __attribute__((weak));
+#endif
+
 void DbgBreakPoint_entry() {
+#if defined(__GNUC__) || defined(__clang__)
+  if (rex_title_dbg_breakpoint_hook) {
+    rex_title_dbg_breakpoint_hook();
+  }
+#endif
   rex::debug::Break();
 }
 
