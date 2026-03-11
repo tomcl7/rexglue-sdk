@@ -632,20 +632,9 @@ class PosixCondition<Thread> : public PosixConditionBase {
   }
 
   virtual ~PosixCondition() {
-    if (thread_ && !signaled_) {
-#if REX_PLATFORM_ANDROID
-      if (pthread_kill(thread_, GetSystemSignal(SignalType::kThreadTerminate)) != 0) {
-        assert_always();
-      }
-#else
-      if (pthread_cancel(thread_) != 0) {
-        assert_always();
-      }
-#endif
-      if (pthread_join(thread_, nullptr) != 0) {
-        assert_always();
-      }
-    }
+    // Match Canary/Edge behavior.
+    // Force-cancel/join from the condition destructor can self-join/crash
+    // depending on shutdown ordering, so threads must be stopped explicitly.
   }
 
   bool Signal() override { return true; }
@@ -779,6 +768,27 @@ class PosixCondition<Thread> : public PosixConditionBase {
       std::unique_lock<std::mutex> lock(callback_mutex_);
       user_callbacks_.push_back(std::move(callback));
       has_pending_user_callbacks_.store(true, std::memory_order_release);
+    }
+
+    // If the callback is queued on the current thread, don't self-signal.
+    // Alertable waits drain this queue in normal thread context.
+    if (pthread_equal(thread_, pthread_self())) {
+      if (alertable_state_) {
+        DispatchQueuedUserCallbacks();
+      }
+      return;
+    }
+
+    sigval value{};
+    value.sival_ptr = this;
+#if REX_PLATFORM_ANDROID
+    int result = sigqueue(pthread_gettid_np(thread_),
+                          GetSystemSignal(SignalType::kThreadUserCallback), value);
+#else
+    int result = pthread_sigqueue(thread_, GetSystemSignal(SignalType::kThreadUserCallback), value);
+#endif
+    if (result != 0) {
+      REXSYS_WARN("QueueUserCallback: signal delivery failed ({})", result);
     }
   }
 
@@ -1334,6 +1344,7 @@ void* PosixCondition<Thread>::ThreadStartRoutine(void* parameter) {
 std::unique_ptr<Thread> Thread::Create(CreationParameters params,
                                        std::function<void()> start_routine) {
   install_signal_handler(SignalType::kThreadSuspend);
+  install_signal_handler(SignalType::kThreadUserCallback);
 #if REX_PLATFORM_ANDROID
   install_signal_handler(SignalType::kThreadTerminate);
 #endif
@@ -1348,6 +1359,14 @@ Thread* Thread::GetCurrentThread() {
   if (current_thread_) {
     return current_thread_;
   }
+
+  // Threads not created by Thread::Create (typically main thread) still need
+  // process-wide signal handlers used by suspend/APC machinery.
+  install_signal_handler(SignalType::kThreadSuspend);
+  install_signal_handler(SignalType::kThreadUserCallback);
+#if REX_PLATFORM_ANDROID
+  install_signal_handler(SignalType::kThreadTerminate);
+#endif
 
   // Should take this route only for threads not created by Thread::Create.
   // The only thread not created by Thread::Create should be the main thread.
@@ -1392,8 +1411,8 @@ static void signal_handler(int signal, siginfo_t* /*info*/, void* /*context*/) {
       current_thread_->WaitSuspended();
     } break;
     case SignalType::kThreadUserCallback: {
-      // User callbacks are drained from alertable waits in normal thread
-      // context instead of signal context.
+      // Callbacks are drained from alertable waits in normal thread context.
+      // This signal is only used as a wakeup hint.
     } break;
 #if REX_PLATFORM_ANDROID
     case SignalType::kThreadTerminate: {

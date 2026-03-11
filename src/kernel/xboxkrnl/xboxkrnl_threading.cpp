@@ -1129,7 +1129,8 @@ void NtQueueApcThread_entry(ppc_u32_t thread_handle, ppc_pvoid_t apc_routine,
     mem->SystemHeapFree(apc_ptr);
     return;
   }
-  // Wake up sleeping alertable thread to process APCs
+  // Match Edge/Canary behavior: callback is only a wakeup hint.
+  // APC delivery happens via alertable wait handling.
   thread->thread()->QueueUserCallback([]() {});
 }
 
