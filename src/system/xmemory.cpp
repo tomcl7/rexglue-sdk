@@ -460,6 +460,9 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
   }
   uint32_t virtual_address = HostToGuestVirtual(host_address);
   BaseHeap* heap = LookupHeap(virtual_address);
+  if (!heap) {
+    return false;
+  }
   if (heap->heap_type() != memory::HeapType::kGuestPhysical) {
     return false;
   }
@@ -470,8 +473,106 @@ bool Memory::AccessViolationCallback(std::unique_lock<std::recursive_mutex> glob
   // Will be rounded to physical page boundaries internally, so just pass 1 as
   // the length - guranteed not to cross page boundaries also.
   auto physical_heap = static_cast<PhysicalHeap*>(heap);
-  return physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address, 1,
-                                         is_write, false);
+  if (physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address, 1,
+                                      is_write, false)) {
+    static std::atomic<uint32_t> handled_physical_fault_count{0};
+    uint32_t handled_count =
+        handled_physical_fault_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (handled_count <= 16) {
+      REXSYS_DEBUG("Handled guest physical {} fault #{} at {:08X}", is_write ? "write" : "read",
+                   handled_count, virtual_address);
+      if (handled_count == 16) {
+        REXSYS_DEBUG("Further handled guest physical fault logs suppressed");
+      }
+    }
+    return true;
+  }
+
+  // Recovery path for stale host protection state in physical memory:
+  // if guest metadata says the page is writable but host protection is still
+  // read-only / no-access, restore write access and resume execution.
+  if (is_write) {
+    constexpr uint32_t kWriteProtectMask =
+        memory::kMemoryProtectWrite | memory::kMemoryProtectWriteCombine;
+    uint32_t guest_protect = 0;
+    bool allow_write = false;
+    if (heap->QueryProtect(virtual_address, &guest_protect) &&
+        (guest_protect & kWriteProtectMask)) {
+      allow_write = true;
+    } else {
+      // If write-watch left current protect stale, trust committed allocation
+      // metadata first for this alias.
+      HeapAllocationInfo guest_info{};
+      if (heap->QueryRegionInfo(virtual_address, &guest_info) &&
+          (guest_info.state & memory::kMemoryAllocationCommit) &&
+          (guest_info.allocation_protect & kWriteProtectMask)) {
+        guest_protect = guest_info.protect;
+        allow_write = true;
+      } else {
+        // Alias-aware fallback: consult canonical 0x00000000 physical heap
+        // metadata when this alias has stale tracking.
+        uint32_t physical_address = GetPhysicalAddress(virtual_address);
+        if (physical_address != UINT32_MAX) {
+          uint32_t physical_protect = 0;
+          if (heaps_.physical.QueryProtect(physical_address, &physical_protect) &&
+              (physical_protect & kWriteProtectMask)) {
+            guest_protect = physical_protect;
+            allow_write = true;
+          } else {
+            HeapAllocationInfo physical_info{};
+            if (heaps_.physical.QueryRegionInfo(physical_address, &physical_info) &&
+                (physical_info.state & memory::kMemoryAllocationCommit) &&
+                (physical_info.allocation_protect & kWriteProtectMask)) {
+              guest_protect = physical_info.protect;
+              allow_write = true;
+            }
+          }
+        }
+      }
+    }
+    if (allow_write) {
+      size_t host_page_size = rex::memory::page_size();
+      uintptr_t page_base =
+          reinterpret_cast<uintptr_t>(host_address) & ~(uintptr_t(host_page_size - 1));
+      if (rex::memory::Protect(reinterpret_cast<void*>(page_base), host_page_size,
+                               rex::memory::PageAccess::kReadWrite, nullptr)) {
+        REXSYS_WARN(
+            "Recovered stale physical page protection for guest {:08X} (host {:016X}, "
+            "guest_protect {:08X})",
+            virtual_address, static_cast<uint64_t>(page_base), guest_protect);
+        return true;
+      }
+    }
+
+    static std::atomic<uint32_t> unhandled_physical_write_fault_count{0};
+    uint32_t unhandled_count =
+        unhandled_physical_write_fault_count.fetch_add(1, std::memory_order_relaxed) + 1;
+    if (unhandled_count <= 16) {
+      uint32_t current_guest_protect = 0;
+      heap->QueryProtect(virtual_address, &current_guest_protect);
+      uint32_t physical_address = GetPhysicalAddress(virtual_address);
+      uint32_t physical_protect = 0;
+      if (physical_address != UINT32_MAX) {
+        heaps_.physical.QueryProtect(physical_address, &physical_protect);
+      }
+      HeapAllocationInfo region_info{};
+      bool has_region_info = heap->QueryRegionInfo(virtual_address, &region_info);
+      REXSYS_ERROR(
+          "Unhandled guest physical write fault #{}: guest={:08X} host={:016X} phys={:08X} "
+          "guest_protect={:08X} physical_protect={:08X} region_base={:08X} "
+          "region_size={:08X} region_state={:08X} region_alloc_protect={:08X}",
+          unhandled_count, virtual_address,
+          static_cast<uint64_t>(reinterpret_cast<uintptr_t>(host_address)), physical_address,
+          current_guest_protect, physical_protect, has_region_info ? region_info.base_address : 0,
+          has_region_info ? region_info.region_size : 0, has_region_info ? region_info.state : 0,
+          has_region_info ? region_info.allocation_protect : 0);
+      if (unhandled_count == 16) {
+        REXSYS_ERROR("Further unhandled guest physical write fault logs suppressed");
+      }
+    }
+  }
+
+  return false;
 }
 
 bool Memory::AccessViolationCallbackThunk(
@@ -485,6 +586,9 @@ bool Memory::TriggerPhysicalMemoryCallbacks(
     std::unique_lock<std::recursive_mutex> global_lock_locked_once, uint32_t virtual_address,
     uint32_t length, bool is_write, bool unwatch_exact_range, bool unprotect) {
   BaseHeap* heap = LookupHeap(virtual_address);
+  if (!heap) {
+    return false;
+  }
   if (heap->heap_type() == memory::HeapType::kGuestPhysical) {
     auto physical_heap = static_cast<PhysicalHeap*>(heap);
     return physical_heap->TriggerCallbacks(std::move(global_lock_locked_once), virtual_address,
@@ -1562,10 +1666,7 @@ bool PhysicalHeap::Alloc(uint32_t size, uint32_t alignment, uint32_t allocation_
   // Given the address we've reserved in the parent heap, pin that here.
   // Shouldn't be possible for it to be allocated already.
   uint32_t address = heap_base_ + parent_address - parent_heap_start;
-  // The physical memory is already aligned properly by the parent heap.
-  // We only need page alignment for the virtual address since the actual
-  // memory alignment requirement has been satisfied in physical space.
-  if (!BaseHeap::AllocFixed(address, size, page_size_, allocation_type, protect)) {
+  if (!BaseHeap::AllocFixed(address, size, alignment, allocation_type, protect)) {
     REXSYS_ERROR("PhysicalHeap::Alloc unable to pin physical memory in physical heap");
     // TODO(benvanik): don't leak parent memory.
     return false;
