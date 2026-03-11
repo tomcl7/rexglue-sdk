@@ -117,13 +117,19 @@ ppc_u32_result_t NtCreateFile_entry(ppc_pu32_t handle_out, ppc_u32_t desired_acc
     return X_STATUS_INVALID_PARAMETER;
   }
   assert_not_null(handle_out);
+  const bool is_fable2 = kernel_state()->title_id() == 0x4D5307F1u;
+  uint32_t caller_lr = 0;
+  if (auto* current_ctx = rex::g_current_ppc_context) {
+    caller_lr = static_cast<uint32_t>(current_ctx->lr);
+  }
 
   auto object_name = kernel_memory()->TranslateVirtual<X_ANSI_STRING*>(object_attrs->name_ptr);
 
   rex::filesystem::Entry* root_entry = nullptr;
+  std::string root_guest_path;
 
   // Compute path, possibly attrs relative.
-  auto target_path = util::TranslateAnsiString(kernel_memory(), object_name);
+  auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
   REXKRNL_IMPORT_TRACE(
       "NtCreateFile", "path={} access={:#x} attrs={:#x} share={:#x} disp={:#x} options={:#x}",
       target_path, (uint32_t)desired_access, (uint32_t)file_attributes, (uint32_t)share_access,
@@ -142,6 +148,7 @@ ppc_u32_result_t NtCreateFile_entry(ppc_pu32_t handle_out, ppc_u32_t desired_acc
     assert_true(root_file->type() == XObject::Type::File);
 
     root_entry = root_file->entry();
+    root_guest_path = root_file->path();
   }
 
   // Attempt open (or create).
@@ -175,6 +182,14 @@ ppc_u32_result_t NtCreateFile_entry(ppc_pu32_t handle_out, ppc_u32_t desired_acc
   } else {
     REXKRNL_IMPORT_RESULT("NtCreateFile", "{:#x} handle={:#x}", result, handle);
   }
+  if (is_fable2) {
+    REXKRNL_DEBUG(
+        "F2 NtCreateFile lr={:08X} root={:08X} root_path='{}' path='{}' disp={:#x} opts={:#x} "
+        "-> {:#x} handle={:08X} opened='{}'",
+        caller_lr, static_cast<uint32_t>(object_attrs->root_directory), root_guest_path,
+        target_path, static_cast<uint32_t>(creation_disposition),
+        static_cast<uint32_t>(create_options), result, handle, file ? file->path() : std::string());
+  }
 
   return result;
 }
@@ -193,6 +208,7 @@ ppc_u32_result_t NtReadFile_entry(ppc_u32_t file_handle, ppc_u32_t event_handle,
                                   ppc_ptr_t<X_IO_STATUS_BLOCK> io_status_block, ppc_pvoid_t buffer,
                                   ppc_u32_t buffer_length, ppc_pu64_t byte_offset_ptr) {
   uint64_t byte_offset = byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : 0;
+  const bool apc_requested = (static_cast<uint32_t>(apc_routine_ptr) & ~1u) != 0;
   REXKRNL_IMPORT_TRACE(
       "NtReadFile",
       "handle={:#x} event={:#x} apc={:#x} apc_ctx={:#x} iosb={:#x} buf={:#x} len={:#x} offset={}",
@@ -200,6 +216,8 @@ ppc_u32_result_t NtReadFile_entry(ppc_u32_t file_handle, ppc_u32_t event_handle,
       apc_context.guest_address(), io_status_block.guest_address(), buffer.guest_address(),
       (uint32_t)buffer_length, byte_offset_ptr ? (int64_t)byte_offset : -1);
   X_STATUS result = X_STATUS_SUCCESS;
+  bool apc_queued = false;
+  uint32_t bytes_read_for_log = 0;
 
   bool signal_event = false;
   auto ev = kernel_state()->object_table()->LookupObject<XEvent>(event_handle);
@@ -219,6 +237,7 @@ ppc_u32_result_t NtReadFile_entry(ppc_u32_t file_handle, ppc_u32_t event_handle,
       result = file->Read(buffer.guest_address(), buffer_length,
                           byte_offset_ptr ? static_cast<uint64_t>(*byte_offset_ptr) : -1,
                           &bytes_read, apc_context.guest_address());
+      bytes_read_for_log = bytes_read;
       if (io_status_block) {
         io_status_block->status = result;
         io_status_block->information = bytes_read;
@@ -230,8 +249,17 @@ ppc_u32_result_t NtReadFile_entry(ppc_u32_t file_handle, ppc_u32_t event_handle,
       if ((uint32_t)apc_routine_ptr & ~1) {
         if (apc_context && result == X_STATUS_SUCCESS) {
           auto thread = XThread::GetCurrentThread();
-          thread->EnqueueApc(static_cast<uint32_t>(apc_routine_ptr) & ~1u,
-                             apc_context.guest_address(), io_status_block.guest_address(), 0);
+          uint32_t apc_routine = static_cast<uint32_t>(apc_routine_ptr) & ~1u;
+          uint32_t apc_ctx = apc_context.guest_address();
+          uint32_t apc_arg1 = io_status_block.guest_address();
+          REXKRNL_IMPORT_TRACE("NtReadFile",
+                               "queue_apc thid={} normal={:#x} ctx={:#x} arg1={:#x} arg2=0",
+                               thread ? thread->thread_id() : 0, apc_routine, apc_ctx, apc_arg1);
+          thread->EnqueueApc(apc_routine, apc_ctx, apc_arg1, 0);
+          apc_queued = true;
+        } else {
+          REXKRNL_IMPORT_TRACE("NtReadFile", "skip_apc_queue (apc_ctx={:#x}, status={:#x})",
+                               apc_context.guest_address(), result);
         }
       }
 
@@ -276,11 +304,30 @@ ppc_u32_result_t NtReadFile_entry(ppc_u32_t file_handle, ppc_u32_t event_handle,
   // Log detailed completion info for debugging async IO issues
   if (file) {
     REXKRNL_IMPORT_RESULT(
-        "NtReadFile", "{:#x} (sync={}, iosb_status={:#x}, iosb_info={}, ev_signaled={})", result,
-        file->is_synchronous(), io_status_block ? (uint32_t)io_status_block->status : 0xDEAD,
-        io_status_block ? (uint32_t)io_status_block->information : 0, ev && signal_event);
+        "NtReadFile",
+        "{:#x} (sync={}, iosb_status={:#x}, iosb_info={}, ev_signaled={}, apc_requested={}, "
+        "apc_queued={})",
+        result, file->is_synchronous(),
+        io_status_block ? (uint32_t)io_status_block->status : 0xDEAD,
+        io_status_block ? (uint32_t)io_status_block->information : 0, ev && signal_event,
+        apc_requested, apc_queued);
   } else {
-    REXKRNL_IMPORT_RESULT("NtReadFile", "{:#x}", result);
+    REXKRNL_IMPORT_RESULT("NtReadFile", "{:#x} (apc_requested={}, apc_queued={})", result,
+                          apc_requested, apc_queued);
+  }
+  if (kernel_state()->title_id() == 0x4D5307F1u && file) {
+    uint32_t caller_lr = 0;
+    if (auto* current_ctx = rex::g_current_ppc_context) {
+      caller_lr = static_cast<uint32_t>(current_ctx->lr);
+    }
+    REXKRNL_DEBUG(
+        "F2 NtReadFile lr={:08X} file='{}' len={:#x} offset={} -> status={:#x} bytes={} "
+        "iosb_status={:#x} iosb_info={} apc_req={} apc_q={}",
+        caller_lr, file->path(), static_cast<uint32_t>(buffer_length),
+        byte_offset_ptr ? static_cast<int64_t>(byte_offset) : -1, result, bytes_read_for_log,
+        io_status_block ? static_cast<uint32_t>(io_status_block->status) : 0xDEAD,
+        io_status_block ? static_cast<uint32_t>(io_status_block->information) : 0, apc_requested,
+        apc_queued);
   }
   return result;
 }
@@ -513,7 +560,7 @@ ppc_u32_result_t NtQueryFullAttributesFile_entry(
     ppc_ptr_t<X_OBJECT_ATTRIBUTES> obj_attribs,
     ppc_ptr_t<X_FILE_NETWORK_OPEN_INFORMATION> file_info) {
   auto object_name = kernel_memory()->TranslateVirtual<X_ANSI_STRING*>(obj_attribs->name_ptr);
-  auto path_str = util::TranslateAnsiString(kernel_memory(), object_name);
+  auto path_str = util::TranslateAnsiPath(kernel_memory(), object_name);
   REXKRNL_IMPORT_TRACE("NtQueryFullAttributesFile", "path={}", path_str);
 
   object_ref<XFile> root_file;
@@ -525,7 +572,7 @@ ppc_u32_result_t NtQueryFullAttributesFile_entry(
     assert_always();
   }
 
-  auto target_path = util::TranslateAnsiString(kernel_memory(), object_name);
+  auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
 
   // Enforce that the path is ASCII.
   if (!IsValidPath(target_path, false)) {
@@ -566,7 +613,7 @@ ppc_u32_result_t NtQueryDirectoryFile_entry(ppc_u32_t file_handle, ppc_u32_t eve
   uint32_t info = 0;
 
   auto file = kernel_state()->object_table()->LookupObject<XFile>(file_handle);
-  auto name = util::TranslateAnsiString(kernel_memory(), file_name);
+  auto name = util::TranslateAnsiPath(kernel_memory(), file_name);
 
   // Enforce that the path is ASCII.
   if (!IsValidPath(name, true)) {
@@ -619,7 +666,7 @@ ppc_u32_result_t NtOpenSymbolicLinkObject_entry(ppc_pu32_t handle_out,
 
   auto object_name = kernel_memory()->TranslateVirtual<X_ANSI_STRING*>(object_attrs->name_ptr);
 
-  auto target_path = util::TranslateAnsiString(kernel_memory(), object_name);
+  auto target_path = util::TranslateAnsiPath(kernel_memory(), object_name);
 
   // Enforce that the path is ASCII.
   if (!IsValidPath(target_path, false)) {

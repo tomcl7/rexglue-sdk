@@ -66,13 +66,14 @@ bool ReXApp::OnInitialize() {
     game_dir = exe_dir / "assets";
   }
 
-  // User data: cvar override, or platform default
+  // User data: cvar override, or "save" under the game directory.
+  // Example: /games/Fable2/assets -> /games/Fable2/assets/save
   std::filesystem::path user_dir;
   std::string user_data_cvar = REXCVAR_GET(user_data_root);
   if (!user_data_cvar.empty()) {
     user_dir = user_data_cvar;
   } else {
-    user_dir = rex::filesystem::GetUserFolder() / GetName();
+    user_dir = game_dir / "save";
   }
 
   // Update data: cvar override, or empty (opt-in)
