@@ -47,13 +47,18 @@ class FunctionDispatcher {
   uint64_t ExecuteInterrupt(ThreadState* thread_state, uint32_t address, uint64_t args[],
                             size_t arg_count);
 
+  // Shared constant: thunk region size per module. Used by both FunctionDispatcher
+  // and Memory for dispatch table sizing. Defined once here, referenced by Memory.
+  static constexpr uint32_t kThunkReserveSize = 0x10000;  // 64KB
+
   // rexglue function table management (per-module table at IMAGE_BASE + IMAGE_SIZE)
   bool InitializeFunctionTable(uint32_t code_base, uint32_t code_size, uint32_t image_base,
                                uint32_t image_size);
   void SetFunction(uint32_t guest_address, ::PPCFunc* func);
   ::PPCFunc* GetFunction(uint32_t guest_address);
-  bool HasFunctionTable() const { return function_table_initialized_; }
+  bool HasFunctionTable() const { return !module_tables_.empty(); }
   uint32_t AllocateThunk(::PPCFunc* func);
+  uint32_t AllocateThunk(::PPCFunc* func, uint32_t caller_address);
 
   /// Register a module's functions. Calls register_func while recording all
   /// addresses written via SetFunction. Recorded addresses are stored under
@@ -70,6 +75,17 @@ class FunctionDispatcher {
   /// Trap function for indirect calls to unloaded/unregistered addresses.
   static void UnloadedModuleTrap(PPCContext& ctx, uint8_t* base);
 
+  struct ModuleTableInfo {
+    uint32_t code_base;
+    uint32_t code_size;
+    uint32_t image_base;
+    uint32_t image_size;
+    uint32_t next_thunk_address;
+    uint32_t thunk_limit;
+  };
+
+  ModuleTableInfo* FindModuleByAddress(uint32_t guest_address);
+
   memory::Memory* memory_ = nullptr;
   ExportResolver* export_resolver_ = nullptr;
 
@@ -77,15 +93,9 @@ class FunctionDispatcher {
 
   // C++ function lookup (for FunctionDispatcher::Execute/GetFunction from C++ code)
   std::unordered_map<uint32_t, ::PPCFunc*> function_table_;
-  uint32_t code_base_ = 0;
-  uint32_t code_size_ = 0;
-  uint32_t image_base_ = 0;
-  uint32_t image_size_ = 0;
-  bool function_table_initialized_ = false;
 
-  // Runtime thunk allocation (for XexGetProcedureAddress)
-  uint32_t next_thunk_address_ = 0;
-  uint32_t thunk_limit_ = 0;
+  // Per-module function table metadata (small N, linear scan is fine)
+  std::vector<ModuleTableInfo> module_tables_;
 
   // Module recording for RegisterModule/UnregisterModule
   bool recording_ = false;

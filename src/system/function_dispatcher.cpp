@@ -130,30 +130,46 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
 
 bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t code_size,
                                                  uint32_t image_base, uint32_t image_size) {
-  if (function_table_initialized_) {
-    REXLOG_WARN("Function table already initialized");
-    return false;
+  // Check for overlapping module ranges (including dispatch table at IMAGE_BASE + IMAGE_SIZE).
+  // Dispatch table size is (code_size + kThunkReserveSize) * 2 bytes.
+  uint32_t new_table_end = image_base + image_size + (code_size + kThunkReserveSize) * 2;
+  for (const auto& existing : module_tables_) {
+    uint32_t existing_table_end =
+        existing.image_base + existing.image_size + (existing.code_size + kThunkReserveSize) * 2;
+    if (image_base < existing_table_end && new_table_end > existing.image_base) {
+      REXLOG_ERROR("Module range [{:08X}, {:08X}) overlaps existing [{:08X}, {:08X})", image_base,
+                   new_table_end, existing.image_base, existing_table_end);
+      return false;
+    }
   }
 
-  // Initialize the guest memory function table (for PPC_LOOKUP_FUNC in recompiled code)
   if (!memory_->InitializeFunctionTable(code_base, code_size, image_base, image_size)) {
     REXLOG_ERROR("Failed to initialize guest memory function table");
     return false;
   }
 
-  code_base_ = code_base;
-  code_size_ = code_size;
-  image_base_ = image_base;
-  image_size_ = image_size;
-  function_table_initialized_ = true;
+  module_tables_.push_back({
+      .code_base = code_base,
+      .code_size = code_size,
+      .image_base = image_base,
+      .image_size = image_size,
+      .next_thunk_address = code_base + code_size,
+      .thunk_limit = code_base + code_size + kThunkReserveSize,
+  });
 
-  // Initialize thunk allocation region (immediately after code section)
-  next_thunk_address_ = code_base + code_size;
-  thunk_limit_ = next_thunk_address_ + 0x10000;
-  REXLOG_INFO(
-      "FunctionDispatcher function table initialized: code={:08X}-{:08X}, image={:08X}-{:08X}",
-      code_base, code_base + code_size, image_base, image_base + image_size);
+  REXLOG_INFO("Function table initialized for module: code={:08X}-{:08X}, image={:08X}-{:08X}",
+              code_base, code_base + code_size, image_base, image_base + image_size);
   return true;
+}
+
+FunctionDispatcher::ModuleTableInfo* FunctionDispatcher::FindModuleByAddress(
+    uint32_t guest_address) {
+  for (auto& mod : module_tables_) {
+    if (guest_address >= mod.code_base && guest_address < mod.thunk_limit) {
+      return &mod;
+    }
+  }
+  return nullptr;
 }
 
 void FunctionDispatcher::UnloadedModuleTrap(PPCContext& ctx, uint8_t* /*base*/) {
@@ -162,7 +178,7 @@ void FunctionDispatcher::UnloadedModuleTrap(PPCContext& ctx, uint8_t* /*base*/) 
 }
 
 void FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
-  assert_true(function_table_initialized_);
+  assert_true(!module_tables_.empty());
 
   // Store in C++ map (for FunctionDispatcher::Execute/GetFunction)
   function_table_[guest_address] = func;
@@ -185,12 +201,25 @@ void FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
 }
 
 uint32_t FunctionDispatcher::AllocateThunk(::PPCFunc* func) {
-  if (next_thunk_address_ >= thunk_limit_) {
-    REXLOG_ERROR("Thunk address space exhausted");
+  return AllocateThunk(func, 0);
+}
+
+uint32_t FunctionDispatcher::AllocateThunk(::PPCFunc* func, uint32_t caller_address) {
+  auto* mod = FindModuleByAddress(caller_address);
+  if (!mod) {
+    if (module_tables_.empty()) {
+      REXLOG_ERROR("AllocateThunk: no module tables initialized");
+      return 0;
+    }
+    mod = &module_tables_[0];
+  }
+
+  if (mod->next_thunk_address >= mod->thunk_limit) {
+    REXLOG_ERROR("Thunk address space exhausted for module at {:08X}", mod->code_base);
     return 0;
   }
-  uint32_t addr = next_thunk_address_;
-  next_thunk_address_ += 4;
+  uint32_t addr = mod->next_thunk_address;
+  mod->next_thunk_address += 4;
   SetFunction(addr, func);
   return addr;
 }
