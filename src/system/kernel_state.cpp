@@ -681,17 +681,36 @@ void KernelState::UnloadUserModule(const object_ref<UserModule>& module, bool ca
   auto global_lock = global_critical_region_.Acquire();
 
   if (module->is_dll_module() && module->entry_point() && call_entry) {
-    // TODO(tomc): add support for this. see comment in LoadUserModule
-    REXSYS_WARN("UnloadUserModule: DllMain(DLL_PROCESS_DETACH) not implemented");
+    auto* thread = XThread::GetCurrentThread();
+    if (thread) {
+      uint64_t args[] = {module->hmodule_ptr(), 0 /* DLL_PROCESS_DETACH */, 0};
+      function_dispatcher_->Execute(thread->thread_state(), module->entry_point(), args, 3);
+    }
+  }
+
+  // Unregister recompiled functions (overwrites slots with UnloadedModuleTrap).
+  // module->path() returns the guest VFS path (e.g., "game:\bin\somelib.dll").
+  // FindRecompiledModule internally calls NormalizeGuestPath which strips the
+  // device prefix and normalizes slashes/case, matching against the normalized
+  // guest_path stored during RegisterRecompiledModule.
+  auto* recomp = FindRecompiledModule(module->path());
+  if (recomp) {
+    function_dispatcher_->UnregisterModule(recomp->pe_name);
+
+    if (!recomp->shared_lib_name.empty()) {
+      auto it = module_libraries_.find(recomp->pe_name);
+      if (it != module_libraries_.end()) {
+        it->second.Close();
+        module_libraries_.erase(it);
+      }
+    }
   }
 
   auto iter = std::find_if(user_modules_.begin(), user_modules_.end(),
                            [&module](const auto& e) { return e->path() == module->path(); });
-  assert_true(iter != user_modules_.end());  // Unloading an unregistered module
-                                             // is probably really bad
+  assert_true(iter != user_modules_.end());
   user_modules_.erase(iter);
 
-  // Ensure this module was not somehow registered twice
   assert_true(std::find_if(user_modules_.begin(), user_modules_.end(), [&module](const auto& e) {
                 return e->path() == module->path();
               }) == user_modules_.end());
