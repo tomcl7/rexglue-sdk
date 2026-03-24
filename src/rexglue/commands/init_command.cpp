@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include <rex/codegen/manifest.h>
 #include <rex/codegen/template_registry.h>
 #include <rex/logging.h>
 #include <rex/result.h>
@@ -141,6 +142,61 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   // Print success message with next steps
   REXLOG_INFO("Project '{}' initialized in '{}' successfully!", names.snake_case, opts.app_root);
 
+  return Ok();
+}
+
+Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
+  namespace fs = std::filesystem;
+
+  // Find manifest in project root
+  fs::path root(opts.app_root);
+  fs::path manifestPath;
+  for (const auto& entry : fs::directory_iterator(root)) {
+    if (entry.path().extension() == ".toml" &&
+        rex::codegen::ManifestConfig::IsManifest(entry.path())) {
+      manifestPath = entry.path();
+      break;
+    }
+  }
+  if (manifestPath.empty()) {
+    return Err<void>(rex::ErrorCategory::Config, "No manifest found in project root");
+  }
+
+  auto manifest = rex::codegen::ManifestConfig::Load(manifestPath);
+  if (!manifest) {
+    return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
+  }
+
+  // Derive module name from XEX filename
+  fs::path xexFile(opts.xex_path);
+  std::string moduleName = xexFile.stem().string();
+  std::replace(moduleName.begin(), moduleName.end(), '.', '_');
+  std::replace(moduleName.begin(), moduleName.end(), ' ', '_');
+
+  // Create per-binary config
+  std::string configName = manifest->projectName + "_" + moduleName + ".toml";
+  fs::path configPath = manifestPath.parent_path() / configName;
+
+  if (fs::exists(configPath) && !ctx.force) {
+    return Err<void>(rex::ErrorCategory::Config,
+                     fmt::format("Config already exists: {}", configPath.string()));
+  }
+
+  std::ofstream configFile(configPath);
+  configFile << "project_name = \"" << manifest->projectName << "\"\n";
+  configFile << "file_path = \"" << opts.xex_path << "\"\n";
+  configFile << "out_directory_path = \"generated/" << moduleName << "\"\n";
+  configFile.close();
+
+  // Append [[modules]] entry to manifest
+  std::ofstream manifestFile(manifestPath, std::ios::app);
+  manifestFile << "\n[[modules]]\n";
+  manifestFile << "config = \"" << configName << "\"\n";
+  manifestFile << "guestPath = \"" << opts.guest_path << "\"\n";
+  manifestFile.close();
+
+  REXLOG_INFO("Module '{}' added to project (config: {}, guest: {})", moduleName, configName,
+              opts.guest_path);
   return Ok();
 }
 
