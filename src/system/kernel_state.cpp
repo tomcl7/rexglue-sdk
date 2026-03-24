@@ -631,11 +631,47 @@ object_ref<UserModule> KernelState::LoadUserModule(const std::string_view raw_na
 
   module->Dump();
 
-  if (module->is_dll_module() && module->entry_point() && call_entry) {
-    // TODO(tomc): add support for this. sort of coupled with the rest of the guest module loading.
-    //              impl of GetProcAddressByOrdinal is critical to the impl of the dll loading.
+  // Check if this module has recompiled code available
+  auto* recomp = FindRecompiledModule(path);
+  if (recomp && !recomp->shared_lib_name.empty()) {
+    auto& lib = module_libraries_[recomp->pe_name];
+    if (!lib.Load(recomp->shared_lib_name)) {
+      REXSYS_ERROR("Failed to load shared library for module '{}'", recomp->pe_name);
+      object_table()->ReleaseHandle(module->handle());
+      return nullptr;
+    }
 
-    REXSYS_WARN("LoadUserModule: DllMain(DLL_PROCESS_ATTACH) not implemented");
+    auto register_func = reinterpret_cast<runtime::FunctionDispatcher::RegisterFn>(
+        lib.GetSymbol("ReXModule_Register"));
+    if (!register_func) {
+      REXSYS_ERROR("ReXModule_Register not found in '{}'", recomp->shared_lib_name);
+      lib.Close();
+      module_libraries_.erase(recomp->pe_name);
+      object_table()->ReleaseHandle(module->handle());
+      return nullptr;
+    }
+
+    auto* xex = module->xex_module();
+    auto* text = xex->GetPESection(".text");
+    if (!text) {
+      REXSYS_ERROR("Module '{}' has no .text section", recomp->pe_name);
+      lib.Close();
+      module_libraries_.erase(recomp->pe_name);
+      object_table()->ReleaseHandle(module->handle());
+      return nullptr;
+    }
+
+    function_dispatcher_->InitializeFunctionTable(text->address, text->size, xex->base_address(),
+                                                  xex->image_size());
+    function_dispatcher_->RegisterModule(recomp->pe_name, register_func);
+  }
+
+  if (module->is_dll_module() && module->entry_point() && call_entry) {
+    auto* thread = XThread::GetCurrentThread();
+    if (thread) {
+      uint64_t args[] = {module->hmodule_ptr(), 1 /* DLL_PROCESS_ATTACH */, 0};
+      function_dispatcher_->Execute(thread->thread_state(), module->entry_point(), args, 3);
+    }
   }
 
   return module;
