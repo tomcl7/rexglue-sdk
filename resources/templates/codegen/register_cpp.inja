@@ -1,0 +1,22 @@
+//=============================================================================
+// ReXGlue Generated - {{ project }} Function Registration
+//=============================================================================
+
+#include "{{ project }}_init.h"
+#include <rex/system/function_dispatcher.h>
+
+{% if is_dll %}
+#ifdef _WIN32
+#define REX_MODULE_EXPORT __declspec(dllexport)
+#else
+#define REX_MODULE_EXPORT __attribute__((visibility("default")))
+#endif
+
+extern "C" REX_MODULE_EXPORT
+void ReXModule_Register(rex::runtime::FunctionDispatcher* dispatcher) {
+{% else %}
+void {{ project }}_RegisterFunctions(rex::runtime::FunctionDispatcher* dispatcher) {
+{% endif %}
+{% for fn in functions %}{% if not fn.below_code_base %}  dispatcher->SetFunction({{ fn.address }}, {{ fn.name }});
+{% endif %}{% endfor %}{% for imp in imports %}  dispatcher->SetFunction({{ imp.address }}, {{ imp.name }});
+{% endfor %}}

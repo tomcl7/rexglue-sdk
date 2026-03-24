@@ -1,0 +1,25 @@
+//=============================================================================
+// ReXGlue Generated - {{ project }} Module Registry
+//=============================================================================
+
+#include <rex/system/kernel_state.h>
+
+void {{ entrypoint_register_func }}(rex::runtime::FunctionDispatcher*);
+
+void RegisterRecompiledModules(rex::system::KernelState* kernel_state) {
+  // Entrypoint -- registered directly at startup (statically linked)
+  kernel_state->RegisterRecompiledModule(
+      "{{ entrypoint_pe_name }}",
+      nullptr,
+      nullptr,
+      {{ entrypoint_register_func }});
+
+{% for mod in dll_modules %}
+  // DLL module: {{ mod.guest_path }}
+  kernel_state->RegisterRecompiledModule(
+      "{{ mod.pe_name }}",
+      "{{ mod.guest_path }}",
+      "{{ mod.shared_lib_name }}",
+      nullptr);
+{% endfor %}
+}

@@ -224,6 +224,12 @@ bool CodegenWriter::write(bool force) {
   out = renderWithJson(registry, "codegen/config_cpp", tmplData);
   SaveCurrentOutData(fmt::format("{}_config.cpp", projectName));
 
+  // Generate {project}_register.cpp (registration function for hash-based dispatch)
+  REXCODEGEN_TRACE("Recompile: generating {}_register.cpp", projectName);
+  tmplData["is_dll"] = false;  // Entrypoint is not a DLL
+  out = renderWithJson(registry, "codegen/register_cpp", tmplData);
+  SaveCurrentOutData(fmt::format("{}_register.cpp", projectName));
+
   // Filter out imports and rexcrt functions before recompilation
   std::erase_if(functions, [](const FunctionNode* fn) {
     return fn->authority() == FunctionAuthority::IMPORT;
