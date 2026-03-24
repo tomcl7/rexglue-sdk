@@ -137,15 +137,18 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 // Requires ppc_config.h to be included first.
 
 #ifdef PPC_CONFIG_H_INCLUDED
-// Function table lookup: indexed by (addr - CODE_BASE)
+// Per-module function table lookup: direct-indexed at IMAGE_BASE + IMAGE_SIZE.
+// Each module (main XEX, each DLL) has its own table with its own compiled-in constants.
+// Single load: O(1), zero overhead.
 #undef PPC_LOOKUP_FUNC
 #define PPC_LOOKUP_FUNC(x, y) \
   (*(PPCFunc**)(x + PPC_IMAGE_BASE + PPC_IMAGE_SIZE + (uint64_t(uint32_t(y) - PPC_CODE_BASE) * 2)))
 
 #undef PPC_CALL_INDIRECT_FUNC
 #include <rex/perf/counter.h>
-#define PPC_CALL_INDIRECT_FUNC(x) \
-  PROFILE_FUNCTION_DISPATCHED();  \
+#define PPC_CALL_INDIRECT_FUNC(x)           \
+  PROFILE_FUNCTION_DISPATCHED();            \
+  ctx.last_indirect_target = (uint32_t)(x); \
   PPC_LOOKUP_FUNC(base, x)(ctx, base);
 
 #endif  // PPC_CONFIG_H_INCLUDED
@@ -261,6 +264,12 @@ struct alignas(0x40) PPCContext {
 #endif
   PPCFPSCRRegister fpscr;
   uint8_t vscr_sat = 0;  // VSCR saturation flag (for vector ops)
+
+  /// Last indirect call target address. Set by PPC_CALL_INDIRECT_FUNC before
+  /// dispatch. Used by the unloaded-module trap to report the faulting address.
+  /// Unconditional (not guarded by config flags) because ctr may be optimized
+  /// to a local variable via PPC_CONFIG_CTR_AS_LOCAL.
+  uint32_t last_indirect_target = 0;
 
 #ifndef PPC_CONFIG_NON_ARGUMENT_AS_LOCAL
   PPCRegister f0;
