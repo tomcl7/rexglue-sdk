@@ -28,6 +28,8 @@
 // Forward declaration for function mapping (defined in rex/ppc/context.h)
 struct PPCFuncMapping;
 
+#include <rex/ppc/image_info.h>
+
 namespace rex {
 
 // Forward declarations
@@ -127,10 +129,8 @@ class Runtime {
   // config.tool_mode: If true, skips GPU initialization (for analysis tools)
   X_STATUS Setup(RuntimeConfig config = {});
 
-  // rexglue - initializes function dispatch table
-  // func_mappings: null-terminated array of {guest_addr, host_func} pairs
-  X_STATUS Setup(uint32_t code_base, uint32_t code_size, uint32_t image_base, uint32_t image_size,
-                 const PPCFuncMapping* func_mappings, RuntimeConfig config = {});
+  // rexglue - initializes per-module function dispatch table
+  X_STATUS Setup(const PPCImageInfo& image_info, RuntimeConfig config = {});
 
   // Check if running in tool mode (no GPU)
   bool is_tool_mode() const { return tool_mode_; }

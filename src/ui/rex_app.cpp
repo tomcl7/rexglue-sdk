@@ -139,8 +139,7 @@ bool ReXApp::OnInitialize() {
   // Allow subclass to customize config
   OnPreSetup(config);
 
-  auto status = runtime_->Setup(ppc_info_.code_base, ppc_info_.code_size, ppc_info_.image_base,
-                                ppc_info_.image_size, ppc_info_.func_mappings, std::move(config));
+  auto status = runtime_->Setup(ppc_info_, std::move(config));
   if (XFAILED(status)) {
     REXLOG_ERROR("Runtime setup failed: {:08X}", status);
     return false;
