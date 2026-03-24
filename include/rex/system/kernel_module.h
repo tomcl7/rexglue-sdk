@@ -30,7 +30,7 @@ class KernelModule : public XModule {
   const std::string& path() const override { return path_; }
   const std::string& name() const override { return name_; }
 
-  uint32_t GetProcAddressByOrdinal(uint16_t ordinal) override;
+  uint32_t GetProcAddressByOrdinal(uint16_t ordinal, uint32_t caller_address = 0) override;
   uint32_t GetProcAddressByName(const std::string_view name) override;
 
  protected:

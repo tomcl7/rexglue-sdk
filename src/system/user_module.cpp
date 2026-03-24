@@ -241,7 +241,7 @@ X_STATUS UserModule::Unload() {
   return X_STATUS_UNSUCCESSFUL;
 }
 
-uint32_t UserModule::GetProcAddressByOrdinal(uint16_t ordinal) {
+uint32_t UserModule::GetProcAddressByOrdinal(uint16_t ordinal, uint32_t /*caller_address*/) {
   return xex_module()->GetProcAddress(ordinal);
 }
 

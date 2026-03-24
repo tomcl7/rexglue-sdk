@@ -16,6 +16,7 @@
 #include <rex/system/kernel_state.h>
 #include <rex/system/user_module.h>
 #include <rex/system/xexception.h>
+#include <rex/system/xthread.h>
 #include <rex/system/xtypes.h>
 
 namespace rex::kernel::xboxkrnl {
@@ -139,6 +140,18 @@ ppc_u32_result_t XexGetProcedureAddress_entry(ppc_pvoid_t hmodule, ppc_u32_t ord
   // May be entry point?
   assert_not_zero(ordinal);
 
+  // Get caller's return address to identify which module is making this call.
+  // This determines which module's thunk pool to allocate from.
+  // LR is reliable here: kernel imports are called via `bl __imp__XexGetProcedureAddress`
+  // in recompiled code. The bl instruction sets LR to the next instruction in the calling
+  // module. PPCContext::lr retains this value at entry to the kernel stub because the
+  // host-side call does not modify PPCContext::lr.
+  uint32_t caller_address = 0;
+  auto* thread = XThread::GetCurrentThread();
+  if (thread && thread->thread_state() && thread->thread_state()->context()) {
+    caller_address = static_cast<uint32_t>(thread->thread_state()->context()->lr);
+  }
+
   bool is_string_name = (ordinal & 0xFFFF0000) != 0;
   auto string_name = reinterpret_cast<const char*>(REX_KERNEL_MEMORY()->TranslateVirtual(ordinal));
 
@@ -155,7 +168,7 @@ ppc_u32_result_t XexGetProcedureAddress_entry(ppc_pvoid_t hmodule, ppc_u32_t ord
     if (is_string_name) {
       ptr = module->GetProcAddressByName(string_name);
     } else {
-      ptr = module->GetProcAddressByOrdinal(ordinal);
+      ptr = module->GetProcAddressByOrdinal(ordinal, caller_address);
     }
     if (ptr) {
       *out_function_ptr = ptr;

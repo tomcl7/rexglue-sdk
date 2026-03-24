@@ -36,7 +36,7 @@ KernelModule::KernelModule(KernelState* kernel_state, const std::string_view pat
 
 KernelModule::~KernelModule() {}
 
-uint32_t KernelModule::GetProcAddressByOrdinal(uint16_t ordinal) {
+uint32_t KernelModule::GetProcAddressByOrdinal(uint16_t ordinal, uint32_t caller_address) {
   // Look up the export in the resolver
   auto export_entry = export_resolver_->GetExportByOrdinal(name_, ordinal);
   if (!export_entry) {
@@ -65,7 +65,7 @@ uint32_t KernelModule::GetProcAddressByOrdinal(uint16_t ordinal) {
   PPCFunc* func = rex::FindPPCFuncByName(imp_name.c_str());
   if (func) {
     auto* dispatcher = emulator_->function_dispatcher();
-    uint32_t thunk_addr = dispatcher->AllocateThunk(func);
+    uint32_t thunk_addr = dispatcher->AllocateThunk(func, caller_address);
     if (thunk_addr) {
       thunk_cache_[ordinal] = thunk_addr;
       REXSYS_INFO("GetProcAddressByOrdinal: {} ({:04X}) in {} -> thunk at {:08X}",
