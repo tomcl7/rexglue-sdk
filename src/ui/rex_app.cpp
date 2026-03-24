@@ -145,6 +145,13 @@ bool ReXApp::OnInitialize() {
     return false;
   }
 
+  // Register recompiled modules with KernelState (multi-binary projects).
+  // This populates the recompiled_modules_ registry so that LoadUserModule
+  // can match guest paths to shared libraries at runtime.
+  if (ppc_info_.register_modules) {
+    ppc_info_.register_modules(runtime_->kernel_state());
+  }
+
   std::string xex_image = "game:\\default.xex";
 
   // Allow subclass to override xex image

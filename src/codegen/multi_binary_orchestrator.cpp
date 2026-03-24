@@ -116,9 +116,13 @@ Result<void> MultiBinaryOrchestrator::Run(const OrchestratorOptions& opts) {
   }
 
   // Phase 3: Write output for each module
+  bool hasDllModules = !manifest_.modules.empty();
   for (auto& entry : pipelines) {
     if (entry.module->isDll) {
       entry.pipeline.context().setDllModule(true);
+    }
+    if (hasDllModules) {
+      entry.pipeline.context().setHasDllModules(true);
     }
     REXLOG_INFO("Writing output for '{}'", entry.module->targetName);
     auto result = entry.pipeline.RunWrite(opts.force);
