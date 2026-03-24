@@ -199,11 +199,18 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   std::string manifestFilename = manifestPath.filename().string();
 
   auto names = parse_app_name(manifest->projectName);
+
+  // Normalize paths to forward slashes for TOML compatibility
+  std::string xexPath = opts.xex_path;
+  std::replace(xexPath.begin(), xexPath.end(), '\\', '/');
+  std::string guestPath = opts.guest_path;
+  std::replace(guestPath.begin(), guestPath.end(), '\\', '/');
+
   nlohmann::json data = {
       {"names", names_to_json(names)},
       {"module_name", moduleName},
-      {"xex_path", opts.xex_path},
-      {"guest_path", opts.guest_path},
+      {"xex_path", xexPath},
+      {"guest_path", guestPath},
       {"manifest_filename", manifestFilename},
   };
   std::string jsonStr = data.dump();
@@ -220,7 +227,7 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   std::ofstream manifestFile(manifestPath, std::ios::app);
   manifestFile << "\n[[modules]]\n";
   manifestFile << "config = \"" << configName << "\"\n";
-  manifestFile << "guestPath = \"" << opts.guest_path << "\"\n";
+  manifestFile << "guestPath = \"" << guestPath << "\"\n";
   manifestFile.close();
 
   REXLOG_INFO("Module '{}' added to project", moduleName);
