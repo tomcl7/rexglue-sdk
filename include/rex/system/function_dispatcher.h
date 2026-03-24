@@ -15,7 +15,9 @@
 
 #pragma once
 
+#include <string>
 #include <unordered_map>
+#include <vector>
 
 #include <rex/memory.h>
 #include <rex/memory/mapped_memory.h>
@@ -32,6 +34,9 @@ class ThreadState;
 
 class FunctionDispatcher {
  public:
+  /// Callback type for module registration functions.
+  using RegisterFn = void (*)(FunctionDispatcher*);
+
   FunctionDispatcher(memory::Memory* memory, ExportResolver* export_resolver);
   ~FunctionDispatcher();
 
@@ -42,7 +47,7 @@ class FunctionDispatcher {
   uint64_t ExecuteInterrupt(ThreadState* thread_state, uint32_t address, uint64_t args[],
                             size_t arg_count);
 
-  // rexglue function table management
+  // rexglue function table management (per-module table at IMAGE_BASE + IMAGE_SIZE)
   bool InitializeFunctionTable(uint32_t code_base, uint32_t code_size, uint32_t image_base,
                                uint32_t image_size);
   void SetFunction(uint32_t guest_address, ::PPCFunc* func);
@@ -50,15 +55,27 @@ class FunctionDispatcher {
   bool HasFunctionTable() const { return function_table_initialized_; }
   uint32_t AllocateThunk(::PPCFunc* func);
 
+  /// Register a module's functions. Calls register_func while recording all
+  /// addresses written via SetFunction. Recorded addresses are stored under
+  /// module_id for later UnregisterModule.
+  void RegisterModule(const std::string& module_id, RegisterFn register_func);
+
+  /// Unregister all functions previously registered under module_id.
+  /// Overwrites their guest memory table slots with the trap function.
+  void UnregisterModule(const std::string& module_id);
+
  private:
   bool Execute(ThreadState* thread_state, uint32_t address);
+
+  /// Trap function for indirect calls to unloaded/unregistered addresses.
+  static void UnloadedModuleTrap(PPCContext& ctx, uint8_t* base);
 
   memory::Memory* memory_ = nullptr;
   ExportResolver* export_resolver_ = nullptr;
 
   rex::thread::global_critical_region global_critical_region_;
 
-  // rexglue function table
+  // C++ function lookup (for FunctionDispatcher::Execute/GetFunction from C++ code)
   std::unordered_map<uint32_t, ::PPCFunc*> function_table_;
   uint32_t code_base_ = 0;
   uint32_t code_size_ = 0;
@@ -69,6 +86,13 @@ class FunctionDispatcher {
   // Runtime thunk allocation (for XexGetProcedureAddress)
   uint32_t next_thunk_address_ = 0;
   uint32_t thunk_limit_ = 0;
+
+  // Module recording for RegisterModule/UnregisterModule
+  bool recording_ = false;
+  std::vector<uint32_t> recording_addresses_;
+
+  // Recorded addresses per module (for UnregisterModule)
+  std::unordered_map<std::string, std::vector<uint32_t>> module_addresses_;
 };
 
 }  // namespace rex::runtime

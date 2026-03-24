@@ -33,7 +33,6 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
   SCOPE_profile_cpu_f("cpu");
   PROFILE_FUNCTION_DISPATCHED();
 
-  // rexglue: Look up pre-compiled function
   auto fn = GetFunction(address);
   if (!fn) {
     REXCPU_ERROR("Execute({:08X}): function not in function table", address);
@@ -42,16 +41,11 @@ bool FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address) {
 
   auto* ctx = thread_state->context();
 
-  // Pad out stack a bit, as some games seem to overwrite the caller by about
-  // 16 to 32b.
   ctx->r1.u64 -= 64 + 112;
 
-  // This could be set to anything to give us a unique identifier to track
-  // re-entrancy/etc.
   uint64_t previous_lr = ctx->lr;
   ctx->lr = 0xBCBCBCBC;
 
-  // NOTE(tomc): rexglue direct function call
   fn(*ctx, memory_->virtual_membase());
 
   ctx->lr = previous_lr;
@@ -66,7 +60,6 @@ uint64_t FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address
 
   auto* ctx = thread_state->context();
 
-  // Set up arguments (rexglue uses named registers)
   if (arg_count > 0)
     ctx->r3.u64 = args[0];
   if (arg_count > 1)
@@ -85,8 +78,6 @@ uint64_t FunctionDispatcher::Execute(ThreadState* thread_state, uint32_t address
     ctx->r10.u64 = args[7];
 
   if (arg_count > 8) {
-    // Rest of the arguments go on the stack.
-    // FIXME: This assumes arguments are 32 bits!
     auto stack_arg_base =
         memory_->TranslateVirtual(static_cast<uint32_t>(ctx->r1.u64) + 0x54 - (64 + 112));
     for (size_t i = 8; i < arg_count; i++) {
@@ -106,15 +97,11 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
   SCOPE_profile_cpu_f("cpu");
   PROFILE_INTERRUPT_DISPATCHED();
 
-  // Hold the global lock during interrupt dispatch.
-  // This will block if any code is in a critical region (has interrupts
-  // disabled) or if any other interrupt is executing.
   auto global_lock = global_critical_region_.Acquire();
 
   auto* ctx = thread_state->context();
   assert_true(arg_count <= 5);
 
-  // Set up arguments (rexglue uses named registers)
   if (arg_count > 0)
     ctx->r3.u64 = args[0];
   if (arg_count > 1)
@@ -126,8 +113,6 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
   if (arg_count > 4)
     ctx->r7.u64 = args[4];
 
-  // TLS ptr must be zero during interrupts. Some games check this and
-  // early-exit routines when under interrupts.
   auto pcr_address = memory_->TranslateVirtual(static_cast<uint32_t>(ctx->r13.u64));
   uint32_t old_tls_ptr = memory::load_and_swap<uint32_t>(pcr_address);
   memory::store_and_swap<uint32_t>(pcr_address, 0);
@@ -136,13 +121,13 @@ uint64_t FunctionDispatcher::ExecuteInterrupt(ThreadState* thread_state, uint32_
     return 0xDEADBABE;
   }
 
-  // Restores TLS ptr.
   memory::store_and_swap<uint32_t>(pcr_address, old_tls_ptr);
 
   return ctx->r3.u64;
 }
 
 // rexglue function table management
+
 bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t code_size,
                                                  uint32_t image_base, uint32_t image_size) {
   if (function_table_initialized_) {
@@ -171,6 +156,11 @@ bool FunctionDispatcher::InitializeFunctionTable(uint32_t code_base, uint32_t co
   return true;
 }
 
+void FunctionDispatcher::UnloadedModuleTrap(PPCContext& ctx, uint8_t* /*base*/) {
+  REX_FATAL("Call to unloaded or unregistered function at guest address 0x{:08X}",
+            ctx.last_indirect_target);
+}
+
 void FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
   assert_true(function_table_initialized_);
 
@@ -179,6 +169,11 @@ void FunctionDispatcher::SetFunction(uint32_t guest_address, ::PPCFunc* func) {
 
   // Also write to guest memory (for PPC_LOOKUP_FUNC in recompiled code)
   memory_->SetFunction(guest_address, func);
+
+  // Record address if in recording mode (for RegisterModule/UnregisterModule)
+  if (recording_) {
+    recording_addresses_.push_back(guest_address);
+  }
 }
 
 ::PPCFunc* FunctionDispatcher::GetFunction(uint32_t guest_address) {
@@ -195,9 +190,43 @@ uint32_t FunctionDispatcher::AllocateThunk(::PPCFunc* func) {
     return 0;
   }
   uint32_t addr = next_thunk_address_;
-  next_thunk_address_ += 4;  // 4-byte aligned
+  next_thunk_address_ += 4;
   SetFunction(addr, func);
   return addr;
+}
+
+void FunctionDispatcher::RegisterModule(const std::string& module_id, RegisterFn register_func) {
+  assert_true(!recording_);
+  REXLOG_INFO("Registering module: {}", module_id);
+
+  recording_ = true;
+  recording_addresses_.clear();
+
+  register_func(this);
+
+  recording_ = false;
+  module_addresses_[module_id] = std::move(recording_addresses_);
+  recording_addresses_.clear();
+
+  REXLOG_INFO("Module '{}' registered {} functions", module_id,
+              module_addresses_[module_id].size());
+}
+
+void FunctionDispatcher::UnregisterModule(const std::string& module_id) {
+  auto it = module_addresses_.find(module_id);
+  if (it == module_addresses_.end()) {
+    REXLOG_WARN("UnregisterModule: module '{}' not found", module_id);
+    return;
+  }
+
+  REXLOG_INFO("Unregistering module: {} ({} functions)", module_id, it->second.size());
+
+  for (uint32_t addr : it->second) {
+    function_table_.erase(addr);
+    memory_->SetFunction(addr, &UnloadedModuleTrap);
+  }
+
+  module_addresses_.erase(it);
 }
 
 }  // namespace rex::runtime
