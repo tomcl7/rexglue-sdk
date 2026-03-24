@@ -11,6 +11,7 @@ add_executable(unit_tests
     core/chrono_test.cpp
     codegen/config_test.cpp
     codegen/template_registry_test.cpp
+    codegen/manifest_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE
