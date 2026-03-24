@@ -167,6 +167,7 @@ struct TerminateNotification {
 /// Host-side metadata for a fiber managed by rexcrt hooks.
 struct FiberInfo {
   rex::thread::Fiber* host_fiber;  ///< Host OS fiber handle
+  uint32_t uid;                    ///< Unique identifier
   uint32_t guest_context_addr;     ///< Guest fiber context buffer address
   uint32_t guest_stack_base;       ///< Top of guest kernel stack (0 for thread fibers)
   uint32_t guest_stack_bottom;     ///< Bottom of guest kernel stack (0 for thread fibers)

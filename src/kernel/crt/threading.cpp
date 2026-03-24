@@ -31,6 +31,8 @@ using namespace rex::system;
 
 namespace {
 
+std::atomic<uint32_t> unique_fiber_count;
+
 /// get KTHREAD and PCR pointers from the current thread's context.
 struct GuestThreadPtrs {
   X_KTHREAD* kthread;
@@ -161,7 +163,7 @@ ppc_ptr_result_t ConvertThreadToFiber_entry(ppc_pvoid_t lpParameter) {
     thread->set_main_fiber(host_fiber);
   }
 
-  ks->RegisterFiber(buf_addr, FiberInfo{host_fiber, buf_addr, 0, 0, true});
+  ks->RegisterFiber(buf_addr, FiberInfo{host_fiber, unique_fiber_count++, buf_addr, 0, 0, true});
 
   REXKRNL_DEBUG("ConvertThreadToFiber: fiber={:#010x} param={:#010x}", buf_addr,
                 lpParameter.guest_address());
@@ -244,7 +246,7 @@ ppc_ptr_result_t CreateFiber_entry(ppc_u32_t dwStackSize, ppc_fn_t lpStartAddres
     args_owner.release();  // FiberEntryPoint takes ownership
   }
 
-  ks->RegisterFiber(buf_addr, FiberInfo{host_fiber, buf_addr, stack_top, stack_bottom, false});
+  ks->RegisterFiber(buf_addr, FiberInfo{host_fiber, unique_fiber_count++, buf_addr, stack_top, stack_bottom, false});
 
   REXKRNL_DEBUG("CreateFiber: fiber={:#010x} start={:#010x} stack={:#x} param={:#010x}", buf_addr,
                 lpStartAddress.value(), guest_stack_size, lpParameter.guest_address());
@@ -318,7 +320,7 @@ void SwitchToFiber_entry(ppc_pvoid_t lpFiber) {
   if (target_info->host_fiber == thread->main_fiber()) {
     PROFILE_FIBER_LEAVE;
   } else {
-    PROFILE_FIBER_ENTER(ks->GetOrCreateFiberName(target_addr, thread->name().c_str()));
+    PROFILE_FIBER_ENTER(ks->GetOrCreateFiberName(target_info->uid, thread->name().c_str()));
   }
 
   // Host fiber switch -- suspends here, resumes when switched back
