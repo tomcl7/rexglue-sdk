@@ -31,6 +31,7 @@
 #include <rex/system/xam/app_manager.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xam/user_profile.h>
+#include <rex/system/function_dispatcher.h>
 #include <rex/system/shared_library.h>
 #include <rex/system/xcontent.h>
 #include <rex/system/xmemory.h>
