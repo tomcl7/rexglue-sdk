@@ -12,6 +12,7 @@
 #include "init_command.h"
 #include "template_utils.h"
 
+#include <algorithm>
 #include <filesystem>
 #include <fstream>
 
@@ -128,11 +129,18 @@ Result<void> InitProject(const InitOptions& opts, const CliContext& ctx) {
   }
   REXLOG_DEBUG("  Created src/{}", app_header_filename);
 
-  std::string config_filename = names.snake_case + "_config.toml";
+  std::string config_filename = names.snake_case + "_default_xex.toml";
   if (!write_file(root / config_filename, registry.render("init/config_toml", jsonStr))) {
-    return Err<void>(ErrorCategory::IO, "Failed to write config.toml");
+    return Err<void>(ErrorCategory::IO, "Failed to write " + config_filename);
   }
   REXLOG_DEBUG("  Created {}", config_filename);
+
+  // Generate manifest TOML (project-level entry point, references per-binary configs)
+  std::string manifest_filename = names.snake_case + "_manifest.toml";
+  if (!write_file(root / manifest_filename, registry.render("init/manifest_toml", jsonStr))) {
+    return Err<void>(ErrorCategory::IO, "Failed to write " + manifest_filename);
+  }
+  REXLOG_DEBUG("  Created {}", manifest_filename);
 
   if (!write_file(root / "CMakePresets.json", registry.render("init/cmake_presets", jsonStr))) {
     return Err<void>(ErrorCategory::IO, "Failed to write CMakePresets.json");
@@ -149,7 +157,7 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   namespace fs = std::filesystem;
 
   // Find manifest in project root
-  fs::path root(opts.app_root);
+  fs::path root = fs::absolute(opts.app_root);
   fs::path manifestPath;
   for (const auto& entry : fs::directory_iterator(root)) {
     if (entry.path().extension() == ".toml" &&
@@ -159,7 +167,8 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
     }
   }
   if (manifestPath.empty()) {
-    return Err<void>(rex::ErrorCategory::Config, "No manifest found in project root");
+    return Err<void>(rex::ErrorCategory::Config,
+                     "No manifest found in project root. Run 'rexglue init' first.");
   }
 
   auto manifest = rex::codegen::ManifestConfig::Load(manifestPath);
@@ -167,26 +176,45 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
     return Err<void>(rex::ErrorCategory::Config, "Failed to load manifest");
   }
 
-  // Derive module name from XEX filename
+  // Derive module name from XEX filename (dots/spaces -> underscores)
   fs::path xexFile(opts.xex_path);
   std::string moduleName = xexFile.stem().string();
   std::replace(moduleName.begin(), moduleName.end(), '.', '_');
   std::replace(moduleName.begin(), moduleName.end(), ' ', '_');
+  // Lowercase the module name for consistency
+  std::transform(moduleName.begin(), moduleName.end(), moduleName.begin(),
+                 [](unsigned char c) { return std::tolower(c); });
 
-  // Create per-binary config
   std::string configName = manifest->projectName + "_" + moduleName + ".toml";
   fs::path configPath = manifestPath.parent_path() / configName;
 
   if (fs::exists(configPath) && !ctx.force) {
-    return Err<void>(rex::ErrorCategory::Config,
-                     fmt::format("Config already exists: {}", configPath.string()));
+    return Err<void>(
+        rex::ErrorCategory::Config,
+        fmt::format("Config already exists: {}. Use --force to overwrite.", configPath.string()));
   }
 
-  std::ofstream configFile(configPath);
-  configFile << "project_name = \"" << manifest->projectName << "\"\n";
-  configFile << "file_path = \"" << opts.xex_path << "\"\n";
-  configFile << "out_directory_path = \"generated/" << moduleName << "\"\n";
-  configFile.close();
+  // Generate per-module config from template
+  rex::codegen::TemplateRegistry registry;
+  std::string manifestFilename = manifestPath.filename().string();
+
+  auto names = parse_app_name(manifest->projectName);
+  nlohmann::json data = {
+      {"names", names_to_json(names)},
+      {"module_name", moduleName},
+      {"xex_path", opts.xex_path},
+      {"guest_path", opts.guest_path},
+      {"manifest_filename", manifestFilename},
+  };
+  std::string jsonStr = data.dump();
+
+  if (!write_file(configPath, registry.render("init/module_config_toml", jsonStr))) {
+    return Err<void>(rex::ErrorCategory::IO, "Failed to write " + configName);
+  }
+  REXLOG_DEBUG("  Created {}", configName);
+
+  // Create generated output directory for this module
+  fs::create_directories(root / "generated" / moduleName);
 
   // Append [[modules]] entry to manifest
   std::ofstream manifestFile(manifestPath, std::ios::app);
@@ -195,8 +223,11 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
   manifestFile << "guestPath = \"" << opts.guest_path << "\"\n";
   manifestFile.close();
 
-  REXLOG_INFO("Module '{}' added to project (config: {}, guest: {})", moduleName, configName,
-              opts.guest_path);
+  REXLOG_INFO("Module '{}' added to project", moduleName);
+  REXLOG_INFO("  Config:     {}", configName);
+  REXLOG_INFO("  Guest path: {}", opts.guest_path);
+  REXLOG_INFO("  Output dir: generated/{}", moduleName);
+
   return Ok();
 }
 

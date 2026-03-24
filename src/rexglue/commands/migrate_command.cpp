@@ -195,6 +195,43 @@ Result<void> MigrateProject(const MigrateOptions& opts, const CliContext& ctx) {
                 app_header_name);
   }
 
+  // --- Manifest migration: generate manifest if none exists ---
+  fs::path manifest_path;
+  for (const auto& entry : fs::directory_iterator(root)) {
+    if (entry.is_regular_file() && entry.path().extension() == ".toml" &&
+        entry.path().stem().string().ends_with("_manifest")) {
+      manifest_path = entry.path();
+      break;
+    }
+  }
+
+  if (manifest_path.empty()) {
+    // No manifest exists. Create one wrapping the legacy config.
+    // The legacy config name might be "{name}_config.toml" (old style) or
+    // "{name}_default_xex.toml" (new style). Either way, reference it as-is.
+    std::string manifest_filename = names.snake_case + "_manifest.toml";
+    std::string legacy_config_name = config_path.filename().string();
+
+    std::string manifest_content = registry.render("init/manifest_toml", jsonStr);
+
+    // The template references {name}_default_xex.toml as the entrypoint config.
+    // If the legacy config has a different name, patch the reference.
+    std::string expected_config = names.snake_case + "_default_xex.toml";
+    if (legacy_config_name != expected_config) {
+      auto pos = manifest_content.find(expected_config);
+      if (pos != std::string::npos) {
+        manifest_content.replace(pos, expected_config.size(), legacy_config_name);
+      }
+    }
+
+    if (!write_file(root / manifest_filename, manifest_content)) {
+      return Err<void>(ErrorCategory::IO, "Failed to write " + manifest_filename);
+    }
+    REXLOG_INFO("  Created {} (wrapping legacy config {})", manifest_filename, legacy_config_name);
+  } else {
+    REXLOG_INFO("  Manifest already exists: {}", manifest_path.filename().string());
+  }
+
   REXLOG_INFO("Migration complete. Re-run CMake configure to pick up changes.");
 
   return Ok();
