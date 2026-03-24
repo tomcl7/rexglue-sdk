@@ -155,6 +155,9 @@ class CodegenContext {
 
   const std::filesystem::path& configDir() const { return configDir_; }
 
+  void setDllModule(bool is_dll) { is_dll_module_ = is_dll; }
+  bool isDllModule() const { return is_dll_module_; }
+
  private:
   CodegenContext() = default;
 
@@ -164,6 +167,7 @@ class CodegenContext {
   std::unique_ptr<DecodedBinary> decoded_;  ///< Decoded instructions (created via initDecoded())
   runtime::ExportResolver* resolver_ = nullptr;  ///< For runtime resolution (borrowed)
   std::filesystem::path configDir_;  ///< Directory containing config file (for relative paths)
+  bool is_dll_module_ = false;       ///< True if this module is a DLL (shared library output)
 };
 
 }  // namespace rex::codegen

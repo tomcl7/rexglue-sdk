@@ -25,6 +25,7 @@ set(CODEGEN_CORE_SOURCES
     phase_validate.cpp
     template_registry.cpp
     manifest.cpp
+    multi_binary_orchestrator.cpp
 )
 
 # PPC architecture sources (merged from rexarch)

@@ -226,7 +226,7 @@ bool CodegenWriter::write(bool force) {
 
   // Generate {project}_register.cpp (registration function for hash-based dispatch)
   REXCODEGEN_TRACE("Recompile: generating {}_register.cpp", projectName);
-  tmplData["is_dll"] = false;  // Entrypoint is not a DLL
+  tmplData["is_dll"] = ctx_.isDllModule();
   out = renderWithJson(registry, "codegen/register_cpp", tmplData);
   SaveCurrentOutData(fmt::format("{}_register.cpp", projectName));
 
