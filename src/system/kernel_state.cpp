@@ -26,6 +26,7 @@
 #include <rex/system/kernel_module.h>
 #include <rex/system/kernel_state.h>
 #include <rex/system/function_dispatcher.h>
+#include <rex/system/guest_path.h>
 #include <rex/system/user_module.h>
 #include <rex/system/xevent.h>
 #include <rex/system/xmodule.h>
@@ -660,6 +661,29 @@ void KernelState::UnloadUserModule(const object_ref<UserModule>& module, bool ca
               }) == user_modules_.end());
 
   object_table()->ReleaseHandle(module->handle());
+}
+
+void KernelState::RegisterRecompiledModule(const char* pe_name, const char* guest_path,
+                                           const char* shared_lib_name,
+                                           runtime::FunctionDispatcher::RegisterFn register_func) {
+  RecompiledModuleInfo info;
+  info.pe_name = pe_name ? pe_name : "";
+  info.guest_path = guest_path ? NormalizeGuestPath(guest_path) : "";
+  info.shared_lib_name = shared_lib_name ? shared_lib_name : "";
+  info.register_func = register_func;
+  REXSYS_INFO("Registered recompiled module: pe='{}' guest='{}' lib='{}'", info.pe_name,
+              info.guest_path, info.shared_lib_name);
+  recompiled_modules_.push_back(std::move(info));
+}
+
+const KernelState::RecompiledModuleInfo* KernelState::FindRecompiledModule(
+    std::string_view guest_path) const {
+  auto normalized = NormalizeGuestPath(guest_path);
+  for (const auto& info : recompiled_modules_) {
+    if (info.guest_path == normalized)
+      return &info;
+  }
+  return nullptr;
 }
 
 void KernelState::TerminateTitle() {

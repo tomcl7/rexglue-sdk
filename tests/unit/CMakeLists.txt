@@ -12,6 +12,7 @@ add_executable(unit_tests
     codegen/config_test.cpp
     codegen/template_registry_test.cpp
     codegen/manifest_test.cpp
+    system/guest_path_test.cpp
 )
 
 target_include_directories(unit_tests PRIVATE

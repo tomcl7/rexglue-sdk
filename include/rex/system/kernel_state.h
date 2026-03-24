@@ -31,6 +31,7 @@
 #include <rex/system/xam/app_manager.h>
 #include <rex/system/xam/content_manager.h>
 #include <rex/system/xam/user_profile.h>
+#include <rex/system/shared_library.h>
 #include <rex/system/xcontent.h>
 #include <rex/system/xmemory.h>
 #include <rex/system/xobject.h>
@@ -240,6 +241,19 @@ class KernelState {
   object_ref<UserModule> LoadUserModule(const std::string_view name, bool call_entry = true);
   void UnloadUserModule(const object_ref<UserModule>& module, bool call_entry = true);
 
+  // Recompiled module registry (populated by generated RegisterRecompiledModules)
+  struct RecompiledModuleInfo {
+    std::string pe_name;
+    std::string guest_path;
+    std::string shared_lib_name;
+    runtime::FunctionDispatcher::RegisterFn register_func = nullptr;
+  };
+
+  void RegisterRecompiledModule(const char* pe_name, const char* guest_path,
+                                const char* shared_lib_name,
+                                runtime::FunctionDispatcher::RegisterFn register_func);
+  const RecompiledModuleInfo* FindRecompiledModule(std::string_view guest_path) const;
+
   object_ref<KernelModule> GetKernelModule(const std::string_view name);
   template <typename T>
   object_ref<KernelModule> LoadKernelModule() {
@@ -343,6 +357,8 @@ class KernelState {
   std::vector<object_ref<KernelModule>> kernel_modules_;
   std::vector<object_ref<UserModule>> user_modules_;
   std::vector<TerminateNotification> terminate_notifications_;
+  std::vector<RecompiledModuleInfo> recompiled_modules_;
+  std::unordered_map<std::string, SharedLibrary> module_libraries_;
 
   uint32_t kernel_guest_globals_ = 0;
 
