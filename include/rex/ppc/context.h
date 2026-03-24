@@ -127,7 +127,11 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 
 #define PPC_LOOKUP_FUNC(x, y) ((PPCFunc*)nullptr)
 
-#define PPC_CALL_INDIRECT_FUNC(x) __builtin_debugtrap()
+#define PPC_CALL_INDIRECT_FUNC(x)             \
+  do {                                        \
+    ctx.last_indirect_target = (uint32_t)(x); \
+    __builtin_debugtrap();                    \
+  } while (0)
 
 #endif  // !PPC_CONFIG_H_INCLUDED
 
@@ -146,10 +150,13 @@ using PPCFunc = void(PPCContext& ctx, uint8_t* base);
 
 #undef PPC_CALL_INDIRECT_FUNC
 #include <rex/perf/counter.h>
-#define PPC_CALL_INDIRECT_FUNC(x)           \
-  PROFILE_FUNCTION_DISPATCHED();            \
-  ctx.last_indirect_target = (uint32_t)(x); \
-  PPC_LOOKUP_FUNC(base, x)(ctx, base);
+#define PPC_CALL_INDIRECT_FUNC(x)                           \
+  do {                                                      \
+    PROFILE_FUNCTION_DISPATCHED();                          \
+    uint32_t ppc_indirect_target_ = (uint32_t)(x);          \
+    ctx.last_indirect_target = ppc_indirect_target_;        \
+    PPC_LOOKUP_FUNC(base, ppc_indirect_target_)(ctx, base); \
+  } while (0)
 
 #endif  // PPC_CONFIG_H_INCLUDED
 

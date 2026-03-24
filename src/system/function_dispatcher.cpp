@@ -197,6 +197,10 @@ uint32_t FunctionDispatcher::AllocateThunk(::PPCFunc* func) {
 
 void FunctionDispatcher::RegisterModule(const std::string& module_id, RegisterFn register_func) {
   assert_true(!recording_);
+  if (recording_) {
+    REX_FATAL("RegisterModule called while already recording (re-entrancy)");
+    return;
+  }
   REXLOG_INFO("Registering module: {}", module_id);
 
   recording_ = true;

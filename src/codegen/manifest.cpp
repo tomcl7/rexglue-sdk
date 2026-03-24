@@ -31,7 +31,7 @@ std::optional<ManifestConfig> ManifestConfig::Load(const std::filesystem::path& 
 
   // [project]
   if (auto project = tbl["project"].as_table()) {
-    manifest.projectName = project->get("projectName")->value_or<std::string>("");
+    manifest.projectName = (*project)["projectName"].value_or<std::string>("");
   }
   if (manifest.projectName.empty()) {
     REXLOG_ERROR("Manifest missing [project].projectName");
@@ -40,7 +40,7 @@ std::optional<ManifestConfig> ManifestConfig::Load(const std::filesystem::path& 
 
   // [entrypoint]
   if (auto ep = tbl["entrypoint"].as_table()) {
-    auto configPath = ep->get("config")->value_or<std::string>("");
+    auto configPath = (*ep)["config"].value_or<std::string>("");
     if (configPath.empty()) {
       REXLOG_ERROR("Manifest missing [entrypoint].config");
       return std::nullopt;
@@ -59,8 +59,8 @@ std::optional<ManifestConfig> ManifestConfig::Load(const std::filesystem::path& 
         continue;
 
       ManifestModuleEntry entry;
-      entry.config = manifest.manifestDir / modTbl->get("config")->value_or<std::string>("");
-      entry.guestPath = modTbl->get("guestPath")->value_or<std::string>("");
+      entry.config = manifest.manifestDir / (*modTbl)["config"].value_or<std::string>("");
+      entry.guestPath = (*modTbl)["guestPath"].value_or<std::string>("");
 
       if (entry.config.filename().empty() || entry.guestPath.empty()) {
         REXLOG_ERROR("Manifest [[modules]] entry missing config or guestPath");
