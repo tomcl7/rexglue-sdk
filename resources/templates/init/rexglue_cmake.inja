@@ -49,6 +49,11 @@ macro(rexglue_setup_target target_name)
     rexglue_configure_target({{ cmake_var("target_name") }})
 endmacro()
 
+# Include DLL module shared library targets if codegen has generated them
+if(EXISTS "{{ cmake_var("CMAKE_CURRENT_SOURCE_DIR") }}/generated/default_xex/dll_targets.cmake")
+    include(generated/default_xex/dll_targets.cmake)
+endif()
+
 # Codegen target - run 'cmake --build . --target {{ names.snake_case }}_codegen'
 # Uses the manifest to drive codegen for all modules (entrypoint + DLLs).
 add_custom_target({{ names.snake_case }}_codegen

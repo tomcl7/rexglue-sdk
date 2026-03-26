@@ -152,8 +152,10 @@ class CodegenContext {
   const AnalysisState& analysisState() const { return analysisState_; }
 
   runtime::ExportResolver* resolver() const { return resolver_; }
+  void setResolver(runtime::ExportResolver* r) { resolver_ = r; }
 
   const std::filesystem::path& configDir() const { return configDir_; }
+  void setConfigDir(const std::filesystem::path& dir) { configDir_ = dir; }
 
   void setDllModule(bool is_dll) { is_dll_module_ = is_dll; }
   bool isDllModule() const { return is_dll_module_; }
