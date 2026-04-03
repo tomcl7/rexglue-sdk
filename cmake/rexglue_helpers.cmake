@@ -1,33 +1,4 @@
-#==========================================================
-# rexglue_configure_target() - Configure a consumer target
-# with platform-specific settings and SDK source files.
-#
-# Usage:
-#   rexglue_configure_target(<target>)
-#
-# Adds:
-#   - Platform entry point source (windowed_app_main_*.cpp)
-#   - ReXApp base class source (rex_app.cpp)
-#   - Platform-specific link/compile settings
-#==========================================================
-function(rexglue_configure_target target_name)
-    # Platform entry point
-    if(WIN32)
-        target_sources(${target_name} PRIVATE
-            ${REXGLUE_SHARE_DIR}/windowed_app_main_win.cpp)
-    else()
-        target_sources(${target_name} PRIVATE
-            ${REXGLUE_SHARE_DIR}/windowed_app_main_posix.cpp)
-    endif()
-
-    # ReXApp base class
-    target_sources(${target_name} PRIVATE
-        ${REXGLUE_SHARE_DIR}/rex_app.cpp)
-
-    # Build config for version stamp (rex_app.cpp uses REXGLUE_BUILD_STAMP)
-    target_compile_definitions(${target_name} PRIVATE
-        REXGLUE_BUILD_CONFIG="$<CONFIG>")
-
+function(rexglue_apply_target_settings target_name)
     # Whole-archive linking for kernel hooks
     if(WIN32)
         target_link_options(${target_name} PRIVATE
@@ -86,4 +57,56 @@ function(rexglue_configure_target target_name)
             )
         endif()
     endif()
+endfunction()
+
+#==========================================================
+# rexglue_configure_target() - Configure a consumer app
+# target with platform-specific settings and SDK source files.
+#
+# Usage:
+#   rexglue_configure_target(<target>)
+#
+# Adds:
+#   - Platform entry point source (windowed_app_main_*.cpp)
+#   - ReXApp base class source (rex_app.cpp)
+#   - Platform-specific link/compile settings
+#==========================================================
+function(rexglue_configure_target target_name)
+    # Platform entry point
+    if(WIN32)
+        target_sources(${target_name} PRIVATE
+            ${REXGLUE_SHARE_DIR}/windowed_app_main_win.cpp)
+    else()
+        target_sources(${target_name} PRIVATE
+            ${REXGLUE_SHARE_DIR}/windowed_app_main_posix.cpp)
+    endif()
+
+    # ReXApp base class
+    target_sources(${target_name} PRIVATE
+        ${REXGLUE_SHARE_DIR}/rex_app.cpp)
+
+    # Build config for version stamp (rex_app.cpp uses REXGLUE_BUILD_STAMP)
+    target_compile_definitions(${target_name} PRIVATE
+        REXGLUE_BUILD_CONFIG="$<CONFIG>")
+
+    rexglue_apply_target_settings(${target_name})
+endfunction()
+
+#==========================================================
+# rexglue_configure_module_target() - Configure a recompiled
+# guest DLL module target.
+#
+# Usage:
+#   rexglue_configure_module_target(<target>)
+#
+# Adds:
+#   - Whole-archive kernel linkage for guest import hooks
+#   - Platform/runtime DLL handling
+#
+# Intentionally does NOT add app entry sources (WinMain/main) or rex_app.cpp,
+# because generated guest DLLs are loaded by the host app rather than launched
+# as standalone executables.
+#==========================================================
+function(rexglue_configure_module_target target_name)
+    rexglue_apply_target_settings(${target_name})
 endfunction()

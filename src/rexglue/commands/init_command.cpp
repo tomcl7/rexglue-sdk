@@ -194,15 +194,28 @@ Result<void> InitModule(const InitModuleOptions& opts, const CliContext& ctx) {
         fmt::format("Config already exists: {}. Use --force to overwrite.", configPath.string()));
   }
 
+  // Validate xex_path exists
+  fs::path absoluteXexPath = fs::weakly_canonical(fs::absolute(opts.xex_path));
+  if (!fs::exists(absoluteXexPath)) {
+    return Err<void>(rex::ErrorCategory::IO,
+                     fmt::format("XEX file not found: {}", absoluteXexPath.string()));
+  }
+
   // Generate per-module config from template
   rex::codegen::TemplateRegistry registry;
   std::string manifestFilename = manifestPath.filename().string();
 
   auto names = parse_app_name(manifest->projectName);
 
-  // Normalize paths to forward slashes for TOML compatibility
-  std::string xexPath = opts.xex_path;
-  std::replace(xexPath.begin(), xexPath.end(), '\\', '/');
+  // Make xex_path relative to the project root (where the config will live).
+  // Without this, a path like "projdir/assets/foo.dll" stored verbatim would
+  // resolve to "projdir/projdir/assets/foo.dll" when codegen joins configDir
+  // with file_path later.
+  fs::path relXexPath = fs::relative(absoluteXexPath, root);
+  std::string xexPath = relXexPath.generic_string();  // forward slashes
+
+  // guest_path: normalize to forward slashes only (do not strip user-supplied prefix —
+  // runtime matching already strips device prefixes like "game:\")
   std::string guestPath = opts.guest_path;
   std::replace(guestPath.begin(), guestPath.end(), '\\', '/');
 

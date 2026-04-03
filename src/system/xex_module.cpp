@@ -460,7 +460,9 @@ int XexModule::ReadImage(const void* xex_addr, size_t xex_length, bool use_dev_k
     return 0;
   }
 
-  memory()->LookupHeap(base_address_)->Reset();
+  // NOTE (Graine25): I don't think we can call heap->reset over here
+  // because the bins share the same heap? Since each ReadImageXxx has
+  // it's own Alloc fixed, we prolly don't need individual resets each time
 
   aes_decrypt_buffer(use_dev_key ? xe_xex2_devkit_key : xe_xex2_retail_key,
                      reinterpret_cast<const uint8_t*>(xex_security_info()->aes_key), 16,

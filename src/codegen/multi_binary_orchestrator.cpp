@@ -251,6 +251,7 @@ Result<void> MultiBinaryOrchestrator::Run(const OrchestratorOptions& opts) {
     auto outputPath = contexts[0].ctx.configDir() / contexts[0].ctx.Config().outDirectoryPath;
 
     nlohmann::json registryData;
+    registryData["project"] = manifest_.projectName;
     registryData["entrypoint_pe_name"] = "default.xex";
     registryData["entrypoint_register_func"] = manifest_.projectName + "_RegisterFunctions";
 
@@ -259,7 +260,7 @@ Result<void> MultiBinaryOrchestrator::Run(const OrchestratorOptions& opts) {
     for (const auto& mod : manifest_.modules) {
       auto targetName = DeriveTargetName(mod.config);
       nlohmann::json dllEntry;
-      dllEntry["pe_name"] = mod.config.stem().string();
+      dllEntry["pe_name"] = fs::path(mod.guestPath).filename().string();
       dllEntry["guest_path"] = mod.guestPath;
       dllEntry["shared_lib_name"] = manifest_.projectName + "_" + targetName;
       dllArray.push_back(dllEntry);

@@ -69,14 +69,24 @@ void PrintUsage() {
 }
 
 int main(int argc, char** argv) {
+  // Extract positional (non-flag) args from argv directly for command routing.
+  // CLI11's remaining() behavior for positional args that appear before --flags
+  // is version-dependent; bare words like "module" can be silently dropped.
+  std::string command;
+  std::string subcommand;
+  for (int i = 1; i < argc; ++i) {
+    if (argv[i][0] != '-') {
+      if (command.empty())
+        command = argv[i];
+      else if (subcommand.empty())
+        subcommand = argv[i];
+      else
+        break;
+    }
+  }
+
   auto remaining = rex::cvar::Init(argc, argv);
   rex::cvar::ApplyEnvironment();
-
-  std::string command;
-
-  if (!remaining.empty()) {
-    command = remaining[0];
-  }
 
   if (command.empty()) {
     PrintUsage();
@@ -124,7 +134,7 @@ int main(int argc, char** argv) {
   auto startTime = std::chrono::steady_clock::now();
 
   Result<void> result = Ok();
-  if (command == "init" && remaining.size() >= 2 && remaining[1] == "module") {
+  if (command == "init" && subcommand == "module") {
     rexglue::cli::InitModuleOptions opts;
     opts.app_root = REXCVAR_GET(app_root);
     opts.xex_path = REXCVAR_GET(xex_path);
