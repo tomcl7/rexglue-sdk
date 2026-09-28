@@ -54,6 +54,7 @@ add_library(rex::system ALIAS rexruntime)
 add_library(rex::kernel ALIAS rexruntime)
 
 set_target_properties(rexruntime PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS TRUE)
+rexglue_add_version_resource(rexruntime DESCRIPTION "ReXGlue runtime")
 
 rex_target_pch(rexruntime
     <mutex>
