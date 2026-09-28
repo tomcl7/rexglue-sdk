@@ -35,6 +35,7 @@ enum class ErrorCategory {
   NotFound,        // Resource not found
   NotImplemented,  // Feature not implemented
   UserAbort,       // User declined an interactive prompt
+  Module,          // Module loading, connection or initialization
 };
 
 //=============================================================================
@@ -94,6 +95,11 @@ using Result = std::expected<T, Error>;
  */
 using VoidResult = std::expected<void, Error>;
 
+/**
+ * Result type for operations that return nothing on success. Preferred spelling.
+ */
+using Status = VoidResult;
+
 //=============================================================================
 // Helper Functions
 //=============================================================================
@@ -134,37 +140,3 @@ inline auto Err(ErrorCategory category, std::string message, int code = 0) {
 }
 
 }  // namespace rex
-
-//=============================================================================
-// TRY Macro - Early return on error
-//=============================================================================
-// Evaluates the expression and returns early if it contains an error.
-// The value is extracted and assigned if successful.
-//
-// Usage:
-//   Result<int> get_value();
-//   VoidResult do_something() {
-//       int value = TRY(get_value());
-//       // ... use value ...
-//       return rex::Ok();
-//   }
-//
-// For void results:
-//   VoidResult validate();
-//   VoidResult process() {
-//       TRY(validate());  // Returns on error, continues on success
-//       return rex::Ok();
-//   }
-//=============================================================================
-
-#define REX_TRY_CONCAT_IMPL(x, y) x##y
-#define REX_TRY_CONCAT(x, y) REX_TRY_CONCAT_IMPL(x, y)
-
-#define TRY(expr)                                                                 \
-  ({                                                                              \
-    auto REX_TRY_CONCAT(_rex_try_result_, __LINE__) = (expr);                     \
-    if (!REX_TRY_CONCAT(_rex_try_result_, __LINE__)) {                            \
-      return std::unexpected(REX_TRY_CONCAT(_rex_try_result_, __LINE__).error()); \
-    }                                                                             \
-    std::move(REX_TRY_CONCAT(_rex_try_result_, __LINE__)).value();                \
-  })
