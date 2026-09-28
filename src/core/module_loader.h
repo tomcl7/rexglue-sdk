@@ -75,6 +75,7 @@ class ModuleLoader final : public IInterfaceFactory {
   Config config_;
   Api api_;
   std::vector<Loaded> loaded_;
+  std::vector<platform::DynamicLibrary> retired_;
   std::vector<Registered> registry_;
   uint64_t request_count_ = 0;
   bool initialized_ = false;

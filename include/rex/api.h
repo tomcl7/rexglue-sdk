@@ -39,6 +39,13 @@ struct Config {
    * Graphics backend slice, read by the graphics module at Connect.
    */
   graphics::BackendConfig graphics;
+
+  /**
+   * False keeps module DLLs mapped after Shutdown. Transitional. ReXApp sets it false because
+   * the current shutdown path can still reach module code after Shutdown, and module cvars
+   * are still static registrars. Removed with the lifecycle rework that makes shutdown complete.
+   */
+  bool unload_modules_at_shutdown = true;
 };
 
 /**

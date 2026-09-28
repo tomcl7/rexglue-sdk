@@ -256,7 +256,11 @@ void ModuleLoader::UnwindAll() {
   for (auto it = loaded_.rbegin(); it != loaded_.rend(); ++it) {
     it->module = nullptr;
     it->interfaces = {};
-    it->library.Close();
+    if (config_.unload_modules_at_shutdown) {
+      it->library.Close();
+    } else {
+      retired_.push_back(std::move(it->library));
+    }
   }
   loaded_.clear();
 }

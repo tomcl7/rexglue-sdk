@@ -301,6 +301,7 @@ bool ReXApp::ConstructRuntime(const PathConfig& paths) {
 
 bool ReXApp::SetupPresentation() {
   api_config_ = app_context().initial_config();
+  api_config_.unload_modules_at_shutdown = false;
   OnConfigure(api_config_);
   auto init = rex::Init(api_config_);
   if (!init) {
