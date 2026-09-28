@@ -21,10 +21,10 @@
 #include <string>
 #include <thread>
 
+#include <rex/graphics/backend.h>
 #include <rex/graphics/register_file.h>
 #include <rex/kernel.h>
 #include <rex/memory.h>
-#include <rex/system/interfaces/graphics.h>
 #include <rex/system/xthread.h>
 #include <rex/thread/mutex.h>
 #include <rex/ui/graphics_provider.h>
@@ -46,7 +46,7 @@ namespace rex::graphics {
 
 class CommandProcessor;
 
-class GraphicsSystem : public system::IGraphicsSystem {
+class GraphicsSystem : public IGraphicsBackend {
  public:
   virtual ~GraphicsSystem();
 
@@ -59,8 +59,8 @@ class GraphicsSystem : public system::IGraphicsSystem {
   ::rex::ui::Presenter* presenter() const override { return presenter_.get(); }
 
   X_STATUS SetupPresentation(::rex::ui::WindowedAppContext* app_context) override;
-  X_STATUS SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
-                         system::KernelState* kernel_state) override;
+  X_STATUS SetupRexGpu(runtime::FunctionDispatcher* function_dispatcher,
+                       system::KernelState* kernel_state) override;
   bool has_presentation() const override { return presenter_ != nullptr; }
   void Shutdown() override;
 

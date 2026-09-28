@@ -89,9 +89,9 @@ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context) 
     }
     provider_supports_presentation_ = true;
   } else if (!provider_supports_presentation_) {
-    // A prior SetupGuestGpu built a headless provider; backends like Vulkan
+    // A prior SetupRexGpu built a headless provider; backends like Vulkan
     // need swapchain support baked in at provider creation time.
-    REXGPU_ERROR("SetupPresentation called after headless SetupGuestGpu; call order is reversed");
+    REXGPU_ERROR("SetupPresentation called after headless SetupRexGpu; call order is reversed");
     return X_STATUS_UNSUCCESSFUL;
   }
 
@@ -115,8 +115,8 @@ X_STATUS GraphicsSystem::SetupPresentation(ui::WindowedAppContext* app_context) 
   return X_STATUS_SUCCESS;
 }
 
-X_STATUS GraphicsSystem::SetupGuestGpu(runtime::FunctionDispatcher* function_dispatcher,
-                                       system::KernelState* kernel_state) {
+X_STATUS GraphicsSystem::SetupRexGpu(runtime::FunctionDispatcher* function_dispatcher,
+                                     system::KernelState* kernel_state) {
   memory_ = function_dispatcher->memory();
   function_dispatcher_ = function_dispatcher;
   kernel_state_ = kernel_state;
