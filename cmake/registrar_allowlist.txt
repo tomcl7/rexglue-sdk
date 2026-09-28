@@ -1,0 +1,21 @@
+# target:source pairs with static registrars in module DLLs. Shrinks to empty by sub-project 5.
+rexgpu-xenos:src/graphics/command_processor.cpp
+rexgpu-xenos:src/graphics/d3d12/command_processor.cpp
+rexgpu-xenos:src/graphics/d3d12/pipeline_cache.cpp
+rexgpu-xenos:src/graphics/d3d12/render_target_cache.cpp
+rexgpu-xenos:src/graphics/d3d12/shared_memory.cpp
+rexgpu-xenos:src/graphics/flags.cpp
+rexgpu-xenos:src/graphics/graphics_system.cpp
+rexgpu-xenos:src/graphics/pipeline/render_target/cache.cpp
+rexgpu-xenos:src/graphics/pipeline/shader/dxbc_translator.cpp
+rexgpu-xenos:src/graphics/pipeline/shader/dxbc_translator_fetch.cpp
+rexgpu-xenos:src/graphics/pipeline/texture/cache.cpp
+rexgpu-xenos:src/graphics/primitive_processor.cpp
+rexgpu-xenos:src/graphics/util/draw.cpp
+rexgpu-xenos:src/graphics/util/draw_extent_estimator.cpp
+rexgpu-xenos:src/graphics/vulkan/command_processor.cpp
+rexgpu-xenos:src/graphics/vulkan/pipeline_cache.cpp
+rexgpu-xenos:src/graphics/vulkan/primitive_processor.cpp
+rexgpu-xenos:src/graphics/vulkan/render_target_cache.cpp
+rexgpu-xenos:src/graphics/vulkan/shared_memory.cpp
+rexgpu-xenos:src/graphics/vulkan/texture_cache.cpp

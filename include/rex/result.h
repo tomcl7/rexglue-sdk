@@ -17,50 +17,63 @@
 
 namespace rex {
 
-//=============================================================================
-// Error Categories
-//=============================================================================
-
+/**
+ * Broad classification of an error. Sub-project specific codes go in Error::code.
+ */
 enum class ErrorCategory {
-  NoError,         // No error (success)
-  IO,              // File I/O errors
-  Memory,          // Memory allocation/mapping errors
-  Format,          // File format parsing errors (XEX, PE, ELF)
-  Crypto,          // Cryptography errors (decryption, signature)
-  Compression,     // Decompression errors
-  Runtime,         // Runtime execution errors
-  Platform,        // Platform-specific errors
-  Config,          // Configuration errors
-  Validation,      // Validation errors (e.g., unresolved functions)
-  NotFound,        // Resource not found
-  NotImplemented,  // Feature not implemented
-  UserAbort,       // User declined an interactive prompt
-  Module,          // Module loading, connection or initialization
+  NoError,        /**< Success. */
+  IO,             /**< File I/O. */
+  Memory,         /**< Memory allocation or mapping. */
+  Format,         /**< File format parsing (XEX, PE, ELF). */
+  Crypto,         /**< Cryptography (decryption, signature). */
+  Compression,    /**< Decompression. */
+  Runtime,        /**< Runtime execution. */
+  Platform,       /**< Platform specific. */
+  Config,         /**< Configuration. */
+  Validation,     /**< Validation, for example unresolved functions. */
+  NotFound,       /**< Resource not found. */
+  NotImplemented, /**< Feature not implemented. */
+  UserAbort,      /**< User declined an interactive prompt. */
+  Module,         /**< Module loading, connection or initialization. */
 };
 
-//=============================================================================
-// Error Structure
-//=============================================================================
-
+/**
+ * An error value carried by rex::Result and rex::Status.
+ */
 struct Error {
-  ErrorCategory category = ErrorCategory::NoError;
-  std::string message;
-  int code = 0;  // Platform or library-specific error code
+  ErrorCategory category = ErrorCategory::NoError; /**< Classification. */
+  std::string message;                             /**< Human readable detail. */
+  int code = 0;                                    /**< Platform or library specific code. */
 
   Error() = default;
 
+  /**
+   * @param cat Classification.
+   * @param msg Human readable detail.
+   * @param err_code Platform or library specific code.
+   */
   Error(ErrorCategory cat, std::string msg, int err_code = 0)
       : category(cat), message(std::move(msg)), code(err_code) {}
 
-  // Create from system error code
+  /**
+   * Builds an error from a system error code.
+   *
+   * @param cat Classification.
+   * @param msg Human readable detail.
+   * @param errno_value The errno or platform error code.
+   */
   static Error from_errno(ErrorCategory cat, std::string msg, int errno_value) {
     return Error(cat, std::move(msg), errno_value);
   }
 
-  // Check if error represents success
+  /**
+   * @return True when the category is NoError.
+   */
   [[nodiscard]] bool is_success() const noexcept { return category == ErrorCategory::NoError; }
 
-  // Get full error description
+  /**
+   * @return The message, with the code appended when it is not 0.
+   */
   [[nodiscard]] std::string what() const {
     if (is_success()) {
       return "Success";
@@ -72,10 +85,6 @@ struct Error {
     return result;
   }
 };
-
-//=============================================================================
-// Result Type Aliases
-//=============================================================================
 
 /**
  * Result type for operations that can fail
@@ -99,10 +108,6 @@ using VoidResult = std::expected<void, Error>;
  * Result type for operations that return nothing on success. Preferred spelling.
  */
 using Status = VoidResult;
-
-//=============================================================================
-// Helper Functions
-//=============================================================================
 
 /**
  * Create a success result

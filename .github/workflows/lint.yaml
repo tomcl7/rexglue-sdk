@@ -30,6 +30,9 @@ jobs:
       - name: Check Vulkan dependency pins
         run: python scripts/check_vulkan_stack.py
 
+      - name: Audit public headers
+        run: python scripts/header_audit.py include/rex --allowlist scripts/header_audit_allowlist.txt
+
       - name: Run script tests
         run: python -m pytest scripts/tests -v
 
