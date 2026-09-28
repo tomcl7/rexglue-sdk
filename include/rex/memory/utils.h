@@ -82,16 +82,6 @@ enum class DeallocationType {
   kDecommit = 1 << 1,
 };
 
-// Whether the host allows the pages to be allocated or mapped with
-// PageAccess::kExecuteReadWrite - if not, separate mappings backed by the same
-// memory-mapped file must be used to write to executable pages.
-bool IsWritableExecutableMemorySupported();
-
-// Whether PageAccess::kExecuteReadWrite is a supported and preferred way of
-// writing executable memory, useful for simulating how Xenia would work without
-// writable executable memory on a system with it.
-bool IsWritableExecutableMemoryPreferred();
-
 // Allocates a block of memory at the given page-aligned base address.
 // Fails if the memory is not available.
 // Specify nullptr for base_address to leave it up to the system.

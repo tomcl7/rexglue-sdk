@@ -26,10 +26,6 @@ REXCVAR_DEFINE_BOOL(writable_executable_memory, true, "Memory",
 namespace rex {
 namespace memory {
 
-bool IsWritableExecutableMemoryPreferred() {
-  return REXCVAR_GET(writable_executable_memory);
-}
-
 // TODO(benvanik): fancy AVX versions.
 // https://github.com/gnuradio/volk/blob/master/kernels/volk/volk_16u_byteswap.h
 // https://github.com/gnuradio/volk/blob/master/kernels/volk/volk_32u_byteswap.h

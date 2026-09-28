@@ -887,16 +887,10 @@ uint32_t FromPageAccess(rex::memory::PageAccess protect) {
     case memory::PageAccess::kNoAccess:
       return memory::kMemoryProtectNoAccess;
     case memory::PageAccess::kReadOnly:
+    case memory::PageAccess::kExecuteReadOnly:
       return memory::kMemoryProtectRead;
     case memory::PageAccess::kReadWrite:
-      return memory::kMemoryProtectRead | memory::kMemoryProtectWrite;
-    case memory::PageAccess::kExecuteReadOnly:
-      // Guest memory cannot be executable - this should never happen :)
-      assert_always();
-      return memory::kMemoryProtectRead;
     case memory::PageAccess::kExecuteReadWrite:
-      // Guest memory cannot be executable - this should never happen :)
-      assert_always();
       return memory::kMemoryProtectRead | memory::kMemoryProtectWrite;
   }
 

@@ -46,13 +46,11 @@ DWORD ToWin32ProtectFlags(PageAccess access) {
     case PageAccess::kNoAccess:
       return PAGE_NOACCESS;
     case PageAccess::kReadOnly:
+    case PageAccess::kExecuteReadOnly:
       return PAGE_READONLY;
     case PageAccess::kReadWrite:
-      return PAGE_READWRITE;
-    case PageAccess::kExecuteReadOnly:
-      return PAGE_EXECUTE_READ;
     case PageAccess::kExecuteReadWrite:
-      return PAGE_EXECUTE_READWRITE;
+      return PAGE_READWRITE;
     default:
       assert_unhandled_case(access);
       return PAGE_NOACCESS;
@@ -69,26 +67,14 @@ PageAccess ToXeniaProtectFlags(DWORD access) {
     case PAGE_NOACCESS:
       return PageAccess::kNoAccess;
     case PAGE_READONLY:
+    case PAGE_EXECUTE_READ:
       return PageAccess::kReadOnly;
     case PAGE_READWRITE:
-      return PageAccess::kReadWrite;
-    case PAGE_EXECUTE_READ:
-      return PageAccess::kExecuteReadOnly;
     case PAGE_EXECUTE_READWRITE:
-      return PageAccess::kExecuteReadWrite;
+      return PageAccess::kReadWrite;
     default:
       return PageAccess::kNoAccess;
   }
-}
-
-bool IsWritableExecutableMemorySupported() {
-#ifdef REX_BASE_MEMORY_WIN_USE_DESKTOP_FUNCTIONS
-  return true;
-#else
-  // To test FromApp functions on desktop, undefine
-  // REX_BASE_MEMORY_WIN_USE_DESKTOP_FUNCTIONS and link to WindowsApp.lib.
-  return false;
-#endif
 }
 
 void* AllocFixed(void* base_address, size_t length, AllocationType allocation_type,
@@ -200,16 +186,12 @@ void* MapFileView(FileMappingHandle handle, void* base_address, size_t length, P
   DWORD file_access = 0;
   switch (access) {
     case PageAccess::kReadOnly:
+    case PageAccess::kExecuteReadOnly:
       file_access = FILE_MAP_READ;
       break;
     case PageAccess::kReadWrite:
-      file_access = FILE_MAP_ALL_ACCESS;
-      break;
-    case PageAccess::kExecuteReadOnly:
-      file_access = FILE_MAP_READ | FILE_MAP_EXECUTE;
-      break;
     case PageAccess::kExecuteReadWrite:
-      file_access = FILE_MAP_ALL_ACCESS | FILE_MAP_EXECUTE;
+      file_access = FILE_MAP_ALL_ACCESS;
       break;
     case PageAccess::kNoAccess:
     default:

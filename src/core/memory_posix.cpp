@@ -123,27 +123,15 @@ uint32_t ToPosixProtectFlags(PageAccess access) {
     case PageAccess::kNoAccess:
       return PROT_NONE;
     case PageAccess::kReadOnly:
+    case PageAccess::kExecuteReadOnly:
       return PROT_READ;
     case PageAccess::kReadWrite:
-      return PROT_READ | PROT_WRITE;
-    case PageAccess::kExecuteReadOnly:
-      return PROT_READ | PROT_EXEC;
     case PageAccess::kExecuteReadWrite:
-      return PROT_READ | PROT_WRITE | PROT_EXEC;
+      return PROT_READ | PROT_WRITE;
     default:
       assert_unhandled_case(access);
       return PROT_NONE;
   }
-}
-
-bool IsWritableExecutableMemorySupported() {
-#if REX_PLATFORM_MAC
-  // macOS enforces W^X on Apple Silicon. Shared file mappings cannot be both
-  // writable and executable. The code cache must use separate RW and RX views.
-  return false;
-#else
-  return true;
-#endif
 }
 
 // TODO(tomc): this needs to go somewhere else. we should utilize the platform namespace more.
@@ -225,12 +213,9 @@ static bool IsRangeFullyMapped(void* base_address, size_t length) {
 static PageAccess PermsToPageAccess(const char perms[5]) {
   const bool r = perms[0] == 'r';
   const bool w = perms[1] == 'w';
-  const bool x = perms[2] == 'x';
 
-  if (!r && !w && !x)
+  if (!r && !w)
     return PageAccess::kNoAccess;
-  if (x)
-    return w ? PageAccess::kExecuteReadWrite : PageAccess::kExecuteReadOnly;
   return w ? PageAccess::kReadWrite : PageAccess::kReadOnly;
 }
 
@@ -278,9 +263,6 @@ void* AllocFixed(void* base_address, size_t length, AllocationType allocation_ty
 
   int flags = MAP_PRIVATE | MAP_ANONYMOUS;
 #if REX_PLATFORM_MAC
-  if (access == PageAccess::kExecuteReadWrite || access == PageAccess::kExecuteReadOnly) {
-    flags |= MAP_JIT;
-  }
   if (base_address) {
     flags |= MAP_FIXED;
   }
@@ -394,13 +376,7 @@ bool QueryProtect(void* base_address, size_t& length, PageAccess& access_out) {
   length = static_cast<size_t>((address + region_size) -
                                reinterpret_cast<mach_vm_address_t>(base_address));
 
-  if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) ==
-      (VM_PROT_READ | VM_PROT_WRITE | VM_PROT_EXECUTE)) {
-    access_out = PageAccess::kExecuteReadWrite;
-  } else if ((info.protection & (VM_PROT_READ | VM_PROT_EXECUTE)) ==
-             (VM_PROT_READ | VM_PROT_EXECUTE)) {
-    access_out = PageAccess::kExecuteReadOnly;
-  } else if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE)) == (VM_PROT_READ | VM_PROT_WRITE)) {
+  if ((info.protection & (VM_PROT_READ | VM_PROT_WRITE)) == (VM_PROT_READ | VM_PROT_WRITE)) {
     access_out = PageAccess::kReadWrite;
   } else if (info.protection & VM_PROT_READ) {
     access_out = PageAccess::kReadOnly;
