@@ -78,7 +78,11 @@ u32 CreateFileA_entry(mapped_string lpFileName, u32 dwDesiredAccess, u32 dwShare
     return kInvalidHandleValue;
   }
 
-  auto* xfile = new rex::system::XFile(ks, vfs_file, true);
+  // The table holds the reference the guest handle stands for; the creator's
+  // own goes with this scope, or the object and the host handle inside it
+  // outlive every CloseHandle (a save read this way stayed open, the next
+  // save's delete of it went pending, and the game's create over it died).
+  auto xfile = rex::system::object_ref<rex::system::XFile>(new rex::system::XFile(ks, vfs_file, true));
   auto handle = xfile->handle();
   REXKRNL_NOISY_DEBUG("rexcrt_CreateFileA: '{}' -> handle={:#x}", path, handle);
   return handle;
@@ -285,7 +289,7 @@ u32 FindFirstFileA_entry(mapped_string lpFileName, mapped_void lpFindFileData) {
     return kInvalidHandleValue;
   }
 
-  auto* xfile = new rex::system::XFile(ks, vfs_file, true);
+  auto xfile = rex::system::object_ref<rex::system::XFile>(new rex::system::XFile(ks, vfs_file, true));
   xfile->SetFindPattern(pattern);
 
   auto* entry = xfile->FindNext();
@@ -368,8 +372,9 @@ u32 GetFileAttributesA_entry(mapped_string lpFileName) {
   return entry->attributes();
 }
 
-u32 GetFileAttributesExA_entry(u32 fInfoLevelId, mapped_string lpFileName,
+u32 GetFileAttributesExA_entry(mapped_string lpFileName, u32 fInfoLevelId,
                                mapped_void lpFileInformation) {
+  (void)fInfoLevelId;
   const char* path = static_cast<const char*>(lpFileName);
   auto* entry = REX_KERNEL_FS()->ResolvePath(path);
   if (!entry) {

@@ -115,7 +115,7 @@ bool HostPathEntry::DeleteEntryInternal(Entry* entry) {
     return removed >= 1 && removed != static_cast<std::uintmax_t>(-1);
   } else {
     // Delete file.
-    return !std::filesystem::is_directory(full_path) && std::filesystem::remove(full_path, ec);
+    return !std::filesystem::is_directory(full_path, ec) && std::filesystem::remove(full_path, ec);
   }
 }
 

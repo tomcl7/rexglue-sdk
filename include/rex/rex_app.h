@@ -218,6 +218,13 @@ class ReXApp : public ui::WindowedApp, public ui::WindowListener, public ui::Win
   virtual void OnWindowMinimized() {}
   virtual void OnWindowRestored() {}
 
+  /// Whether the SDK's own development overlays -- the debug overlay (F3),
+  /// the settings dialog (F4) and the achievements list (F7) -- answer their
+  /// key binds. Consulted on each press, so a title can keep them off a
+  /// player's screen while leaving them one key away for development. The
+  /// console is not covered: it is gated by its own bind alone.
+  virtual bool AllowDevOverlays() { return true; }
+
   /// Creates the overlay toggled by bind_achievements. Override to replace the
   /// built-in achievement UI. Returning nullptr disables the overlay.
   virtual std::unique_ptr<ui::ImGuiDialog> CreateAchievementsOverlay();

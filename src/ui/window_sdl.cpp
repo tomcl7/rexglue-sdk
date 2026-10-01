@@ -228,6 +228,32 @@ void WindowSDL::DestroySDLWindow() {
   }
 }
 
+bool WindowSDL::SetFullscreenDisplayMode(uint32_t width, uint32_t height) {
+  if (!sdl_window_) {
+    return false;
+  }
+  SDL_DisplayID display = SDL_GetDisplayForWindow(sdl_window_);
+  if (!display) {
+    display = SDL_GetPrimaryDisplay();
+  }
+  SDL_DisplayMode mode{};
+  if (!display || !SDL_GetClosestFullscreenDisplayMode(display, int(width), int(height), 0.0f,
+                                                        true, &mode)) {
+    REXLOG_WARN("no fullscreen display mode holds {}x{}: {}", width, height, SDL_GetError());
+    return false;
+  }
+  if (!SDL_SetWindowFullscreenMode(sdl_window_, &mode) ||
+      !SDL_SetWindowFullscreen(sdl_window_, true)) {
+    REXLOG_WARN("display mode {}x{} refused: {}", mode.w, mode.h, SDL_GetError());
+    SDL_SetWindowFullscreenMode(sdl_window_, nullptr);
+    return false;
+  }
+  SDL_SyncWindow(sdl_window_);
+  REXLOG_INFO("exclusive fullscreen: display mode {}x{} at {:.0f} Hz", mode.w, mode.h,
+              mode.refresh_rate);
+  return true;
+}
+
 void* WindowSDL::GetNativeWindowHandle() const {
 #if REX_PLATFORM_WIN32
   if (!sdl_window_) {

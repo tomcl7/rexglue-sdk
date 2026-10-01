@@ -212,6 +212,28 @@ X_RESULT InputSystem::GetCapabilities(uint32_t user_index, uint32_t flags,
   return driver->GetDeviceCapabilities(chosen, flags, out_caps);
 }
 
+bool InputSystem::ActiveDevice(uint32_t user_index, DeviceInfo* out_info) {
+  if (!out_info || !assignment_) {
+    return false;
+  }
+  RefreshDevices();
+  std::vector<DeviceId> ids;
+  assignment_->DevicesForUser(user_index, ids);
+  if (ids.empty()) {
+    return false;
+  }
+  DeviceId chosen = active_devices_.Active(user_index);
+  if (std::find(ids.begin(), ids.end(), chosen) == ids.end()) {
+    chosen = ids.front();
+  }
+  const DeviceInfo* info = DeviceInfoFor(chosen);
+  if (!info) {
+    return false;
+  }
+  *out_info = *info;
+  return true;
+}
+
 X_RESULT InputSystem::GetState(uint32_t user_index, X_INPUT_STATE* out_state) {
   SCOPE_profile_cpu_f("hid");
   if (!assignment_) {
@@ -319,6 +341,11 @@ X_RESULT InputSystem::GetKeystroke(uint32_t user_index, uint32_t flags,
     }
   }
   return any_connected ? X_ERROR_EMPTY : X_ERROR_DEVICE_NOT_CONNECTED;
+}
+
+void SetControllerBackgroundInput(bool allow) {
+  SDL_SetHint(SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS, allow ? "1" : "0");
+  REXLOG_INFO("Input: controllers read in the background: {}", allow ? "yes" : "no");
 }
 
 std::unique_ptr<InputSystem> CreateDefaultInputSystem(bool tool_mode) {

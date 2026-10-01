@@ -191,6 +191,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
         REXAPU_ERROR("SDL_PutAudioStreamData() failed while filling silence: {}", SDL_GetError());
         break;
       }
+      driver->underrun_blocks_.fetch_add(1, std::memory_order_relaxed);
       additional_amount -= len;
     } else {
       auto buffer = driver->frames_queued_.front();
@@ -218,6 +219,7 @@ void SDLAudioDriver::SDLCallback(void* userdata, SDL_AudioStream* stream, int ad
         break;
       }
       driver->frames_unused_.push(buffer);
+      driver->played_blocks_.fetch_add(1, std::memory_order_relaxed);
 
       auto ret = driver->semaphore_->Release(1, nullptr);
       assert_true(ret);

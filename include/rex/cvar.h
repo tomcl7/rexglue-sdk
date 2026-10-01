@@ -173,6 +173,11 @@ struct FlagEntry {
   std::string default_value;
   bool is_debug_only = false;
   Source source = Source::kDefault;
+  // The value the config file gave, kept even when the environment or the
+  // command line overrode it: what SaveConfig writes back for such an entry,
+  // so a launch's flags stay that launch's and never become the profile's
+  // setting at the next clean exit.
+  std::optional<std::string> config_value;
 };
 
 std::vector<FlagEntry>& GetRegistry();

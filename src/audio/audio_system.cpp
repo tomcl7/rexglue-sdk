@@ -9,6 +9,12 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <algorithm>
+#include <chrono>
+#include <string>
+
+#include <fmt/format.h>
+
 #include <rex/assert.h>
 #include <rex/audio/audio_driver.h>
 #include <rex/audio/audio_system.h>
@@ -100,9 +106,54 @@ void AudioSystem::WorkerThreadMain() {
   // Initialize driver and ringbuffer.
   Initialize();
 
+  // How the guest's renderer keeps up, reported every kReportInterval: the
+  // callbacks run (one per 256-sample block, 187.5 a second at 48 kHz), the
+  // slowest of them, and the blocks every driver played and filled with
+  // silence. Silence means the callback was late; everything after it plays
+  // that much later than the guest meant it to.
+  using report_clock = std::chrono::steady_clock;
+  constexpr auto kReportInterval = std::chrono::seconds(30);
+  auto report_start = report_clock::now();
+  uint64_t report_callbacks = 0;
+  double report_slowest_ms = 0.0;
+  uint64_t report_played = 0, report_underruns = 0;
+  auto driver_totals = [this](uint64_t& played, uint64_t& underruns) {
+    played = underruns = 0;
+    auto lock = global_critical_region_.Acquire();
+    for (const auto& client : clients_) {
+      if (client.in_use && client.driver) {
+        played += client.driver->played_blocks();
+        underruns += client.driver->underrun_blocks();
+      }
+    }
+  };
+  driver_totals(report_played, report_underruns);
+
   // Main run loop.
   uint32_t diag_pump_count = 0;
   while (worker_running_) {
+    if (const auto now = report_clock::now(); now - report_start >= kReportInterval) {
+      uint64_t played = 0, underruns = 0;
+      driver_totals(played, underruns);
+      const double seconds = std::chrono::duration<double>(now - report_start).count();
+      const uint64_t new_underruns = underruns - report_underruns;
+      const std::string line = fmt::format(
+          "audio: last {:.0f} s: {:.1f} guest callbacks/s (187.5 expected), slowest {:.2f} ms; "
+          "{} blocks played, {} filled with silence ({:.0f} ms of audio late)",
+          seconds, static_cast<double>(report_callbacks) / seconds, report_slowest_ms,
+          played - report_played, new_underruns, static_cast<double>(new_underruns) * 256.0 / 48.0);
+      if (new_underruns) {
+        REXAPU_WARN("{}", line);
+      } else {
+        REXAPU_INFO("{}", line);
+      }
+      report_start = now;
+      report_callbacks = 0;
+      report_slowest_ms = 0.0;
+      report_played = played;
+      report_underruns = underruns;
+    }
+
     // These handles signify the number of submitted samples. Once we reach
     // 64 samples, we wait until our audio backend releases a semaphore
     // (signaling a sample has finished playing)
@@ -146,8 +197,13 @@ void AudioSystem::WorkerThreadMain() {
         }
         SCOPE_profile_cpu_i("apu", "rex::audio::AudioSystem->client_callback");
         uint64_t args[] = {client_callback_arg};
+        const auto callback_start = report_clock::now();
         function_dispatcher_->Execute(worker_thread_->thread_state(), client_callback, args,
                                       rex::countof(args));
+        report_slowest_ms = std::max(
+            report_slowest_ms,
+            std::chrono::duration<double, std::milli>(report_clock::now() - callback_start).count());
+        ++report_callbacks;
         if (diag_pump_count < 10) {
           REXAPU_DEBUG("AudioWorker: callback returned for client {}", index);
         }

@@ -74,7 +74,36 @@ struct SettingsStyle {
   ImVec4 lifecycle_unknown{1.00f, 1.00f, 1.00f, 1.00f};
 };
 
+/// The guest's system dialogs -- the keyboard (XamShowKeyboardUI) and the
+/// message box (XamShowMessageBoxUI): a panel in the middle of the screen over
+/// a dimmed game, sized to the window, so it reads the same at 720p and at 4K.
+struct SystemDialogStyle {
+  /// A scalable font the app loaded in OnConfigureFonts, drawn at the sizes
+  /// below; null draws in the drawer's default font.
+  ImFont* font = nullptr;
+  /// Text heights as fractions of the window's height.
+  float body_size = 0.026f;
+  float title_size = 0.036f;
+  /// Panel width as a fraction of the window's width, kept between these
+  /// many body text heights.
+  float width = 0.40f;
+  float min_width_em = 22.0f;
+  float max_width_em = 40.0f;
+  float rounding = 6.0f;
+  ImVec4 dim{0.00f, 0.00f, 0.00f, 0.62f};     // the screen behind the panel
+  ImVec4 panel{0.07f, 0.08f, 0.11f, 0.97f};
+  ImVec4 accent{0.84f, 0.13f, 0.17f, 1.00f};  // the rule under the title, the chosen button
+  ImVec4 title{1.00f, 1.00f, 1.00f, 1.00f};
+  ImVec4 text{0.86f, 0.88f, 0.91f, 1.00f};
+  ImVec4 muted{1.00f, 1.00f, 1.00f, 0.46f};
+  ImVec4 field{1.00f, 1.00f, 1.00f, 0.07f};
+  ImVec4 field_border{1.00f, 1.00f, 1.00f, 0.22f};
+  ImVec4 button{1.00f, 1.00f, 1.00f, 0.08f};
+  ImVec4 button_hovered{1.00f, 1.00f, 1.00f, 0.16f};
+};
+
 struct Style {
+  SystemDialogStyle system_dialog;
   AchievementsStyle achievements;
   ToastStyle toast;
   ConsoleStyle console;

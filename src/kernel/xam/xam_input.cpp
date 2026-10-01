@@ -112,7 +112,23 @@ u32 XamInputGetState_entry(u32 user_index, u32 flags, ppc_ptr_t<X_INPUT_STATE> i
   }
 
   auto* is = input_system();
-  return is->GetState(actual_user_index, input_state);
+  const X_RESULT result = is->GetState(actual_user_index, input_state);
+  // While a system dialog has the input (xeXamInputBlocked), the game reads
+  // a connected pad at rest, as on the console while the system UI is up:
+  // what the player types into a keyboard dialog must not also move the
+  // game's menu behind it.
+  if (result == X_ERROR_SUCCESS && input_state && xeXamInputBlocked()) {
+    auto& pad = input_state->gamepad;
+    xeXamNoteInputReleased(pad.buttons == 0 && pad.left_trigger < 30 && pad.right_trigger < 30);
+    pad.buttons = 0;
+    pad.left_trigger = 0;
+    pad.right_trigger = 0;
+    pad.thumb_lx = 0;
+    pad.thumb_ly = 0;
+    pad.thumb_rx = 0;
+    pad.thumb_ry = 0;
+  }
+  return result;
 }
 
 // https://msdn.microsoft.com/en-us/library/windows/desktop/microsoft.directx_sdk.reference.xinputsetstate(v=vs.85).aspx
@@ -153,6 +169,9 @@ u32 XamInputGetKeystroke_entry(u32 user_index, u32 flags, ppc_ptr_t<X_INPUT_KEYS
     actual_user_index = 0;
   }
 
+  if (xeXamInputBlocked()) {
+    return X_ERROR_EMPTY;
+  }
   auto* is = input_system();
   return is->GetKeystroke(actual_user_index, flags, keystroke);
 }
@@ -175,6 +194,9 @@ u32 XamInputGetKeystrokeEx_entry(mapped_u32 user_index_ptr, u32 flags,
     user_index = 0;
   }
 
+  if (xeXamInputBlocked()) {
+    return X_ERROR_EMPTY;
+  }
   auto* is = input_system();
   auto result = is->GetKeystroke(user_index, flags, keystroke);
   if (XSUCCEEDED(result)) {

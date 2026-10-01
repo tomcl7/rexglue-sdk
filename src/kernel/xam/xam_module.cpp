@@ -9,6 +9,8 @@
  * @modified    Tom Clay, 2026 - Adapted for ReXGlue runtime
  */
 
+#include <atomic>
+#include <chrono>
 #include <vector>
 
 #include <rex/kernel/xam/module.h>
@@ -27,6 +29,39 @@ std::atomic<int> xam_dialogs_shown_ = {0};
 
 bool xeXamIsUIActive() {
   return xam_dialogs_shown_ > 0;
+}
+
+// Set as a system dialog closes, and cleared by the first poll that finds the
+// pad let go (xam_input.cpp): the key or button that closed the dialog --
+// Enter on the keyboard's A, say -- must not reach the game as well.
+std::atomic<bool> xam_input_held_after_ui_ = {false};
+std::atomic<int64_t> xam_input_held_since_ns_ = {0};
+
+void xeXamHoldInputUntilReleased() {
+  xam_input_held_since_ns_.store(
+      std::chrono::steady_clock::now().time_since_epoch().count(), std::memory_order_relaxed);
+  xam_input_held_after_ui_.store(true, std::memory_order_release);
+}
+
+bool xeXamInputBlocked() {
+  return xeXamIsUIActive() || xam_input_held_after_ui_.load(std::memory_order_acquire);
+}
+
+void xeXamNoteInputReleased(bool released) {
+  if (!xam_input_held_after_ui_.load(std::memory_order_acquire)) {
+    return;
+  }
+  // A pad left leaning on a stick or a stuck key must not hold the game off
+  // for good: the hold gives up after a second either way.
+  const int64_t since = xam_input_held_since_ns_.load(std::memory_order_relaxed);
+  const int64_t now = std::chrono::steady_clock::now().time_since_epoch().count();
+  const bool expired =
+      now - since > std::chrono::duration_cast<std::chrono::steady_clock::duration>(
+                        std::chrono::seconds(1))
+                        .count();
+  if (released || expired) {
+    xam_input_held_after_ui_.store(false, std::memory_order_release);
+  }
 }
 
 XamModule::XamModule(Runtime* emulator, KernelState* kernel_state)

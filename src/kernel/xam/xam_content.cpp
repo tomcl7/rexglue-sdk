@@ -141,7 +141,9 @@ u32 xeXamContentCreate(u32 user_index, mapped_string root_name, mapped_void cont
     *disposition_ptr = 0;
   }
 
-  auto run = [content_manager, xuid, root_name = root_name.value(), flags, content_data,
+  // A copy of the root name, not a view: the game formats it into a stack
+  // buffer that is gone by the time a deferred completion runs this.
+  auto run = [content_manager, xuid, root_name = std::string(root_name.value()), flags, content_data,
               disposition_ptr,
               license_mask_ptr](uint32_t& extended_error, uint32_t& length) -> X_RESULT {
     X_RESULT result = X_ERROR_INVALID_PARAMETER;

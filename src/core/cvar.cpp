@@ -86,6 +86,9 @@ bool Outranks(Source source, const FlagEntry& entry) {
 
 // Unvalidated apply, for the command line and environment paths.
 bool ApplyFromSource(FlagEntry& entry, std::string_view value, Source source) {
+  if (source == Source::kConfig) {
+    entry.config_value = std::string(value);
+  }
   if (!Outranks(source, entry) || !entry.setter(value)) {
     return false;
   }
@@ -303,6 +306,10 @@ ApplyResult SetFlagFromSource(std::string_view name, std::string_view value, Sou
   }
 
   auto& entry = GetRegistryStorage()[it->second];
+
+  if (source == Source::kConfig) {
+    entry.config_value = std::string(value);
+  }
 
   if (!Outranks(source, entry)) {
     return ApplyResult::kSkipped;
@@ -539,12 +546,27 @@ std::string SerializeToTOML() {
   std::lock_guard lock(GetRegistryMutex());
   std::string result;
   for (const auto& entry : GetRegistryStorage()) {
-    if (entry.getter() != entry.default_value) {
-      if (entry.type == FlagType::String) {
-        result += entry.name + " = \"" + entry.getter() + "\"\n";
-      } else {
-        result += entry.name + " = " + entry.getter() + "\n";
+    // An entry the command line or the environment set is written back as
+    // the config file had it, or not at all: a launch's flags are for that
+    // launch (a diagnostic flag once saved into a profile taxed every later
+    // session). A value set at runtime, from the settings UI or the console,
+    // is the user's choice and is kept.
+    std::string value;
+    if (entry.source == Source::kCommandLine || entry.source == Source::kEnvironment) {
+      if (!entry.config_value) {
+        continue;
       }
+      value = *entry.config_value;
+    } else {
+      value = entry.getter();
+    }
+    if (value == entry.default_value) {
+      continue;
+    }
+    if (entry.type == FlagType::String) {
+      result += entry.name + " = \"" + value + "\"\n";
+    } else {
+      result += entry.name + " = " + value + "\n";
     }
   }
   return result;

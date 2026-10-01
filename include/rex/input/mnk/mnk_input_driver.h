@@ -19,11 +19,35 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <string_view>
+#include <vector>
 
 namespace rex::input::mnk {
 
 void SetMouseLookActive(bool active);
 bool IsMouseLookActive();
+
+/**
+ * A game's logical action on the keyboard: one rebindable key list (a string
+ * cvar the game defines, "Q" or "Shift" or "LMB,Return") and the controller
+ * input the game reads that action as. With a table installed the driver maps
+ * keys through it instead of the generic per-button keybind_* cvars; the
+ * sticks and the mouse stay generic. One key may stand in for a chord, which
+ * is how a single key covers what the console asks two sticks for.
+ */
+struct KeyboardAction {
+  std::string name;          ///< stable id, "time_stop"
+  std::string cvar;          ///< the keybind cvar's name, read by name each poll
+  uint16_t buttons = 0;      ///< X_INPUT_GAMEPAD_* bits, all pressed together
+  uint8_t left_trigger = 0;  ///< 0..255 while held
+  uint8_t right_trigger = 0;
+};
+
+/// Installs (or, with an empty vector, removes) the game's action table.
+void SetActions(std::vector<KeyboardAction> actions);
+bool HasActions();
+/// The first key currently bound to the action, for prompts; empty when none.
+std::string ActionKeyName(std::string_view name);
 
 class MnkInputDriver final : public InputDriver,
                              public rex::ui::WindowInputListener,

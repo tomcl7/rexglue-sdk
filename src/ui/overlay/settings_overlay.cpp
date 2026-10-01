@@ -11,6 +11,7 @@
  */
 #include <rex/ui/overlay/settings_overlay.h>
 #include <rex/cvar.h>
+#include <rex/input/mnk/mnk_input_driver.h>
 #include <rex/string.h>
 #include <rex/string/numeric.h>
 #include <rex/ui/keybinds.h>
@@ -326,9 +327,11 @@ void SettingsDialog::OnDraw(ImGuiIO& /*io*/) {
         (!entry.description.empty()) ? entry.description.c_str() : entry.name.c_str();
 
     if (is_keybind_category(entry.category)) {
-      // Grey out controller keybinds when MnK mode is disabled
+      // Grey out the generic controller keybinds when MnK mode is disabled or
+      // the game maps its keys through its own action table instead.
       bool mnk_disabled =
-          (entry.category == "Input/Keybinds/Controller" && !REXCVAR_QUERY(bool, mnk_mode));
+          (entry.category == "Input/Keybinds/Controller" &&
+           (!REXCVAR_QUERY(bool, mnk_mode) || rex::input::mnk::HasActions()));
       if (mnk_disabled)
         ImGui::BeginDisabled();
 

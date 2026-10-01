@@ -394,7 +394,11 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
   // gated eager font upload in SetImmediateDrawer is skipped (font uploads
   // lazily on the first Draw instead).
   imgui_drawer_->SetPresenterAndImmediateDrawer(presenter, drawer);
+  // The three development overlays ask the app first (AllowDevOverlays), so
+  // a shipping title can keep them off a player's screen without losing them.
   rex::ui::RegisterBind("bind_debug_overlay", "F3", "Toggle debug overlay", [this] {
+    if (!AllowDevOverlays())
+      return;
     if (debug_overlay_) {
       debug_overlay_.reset();
     } else {
@@ -410,6 +414,8 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
     }
   });
   rex::ui::RegisterBind("bind_settings", "F4", "Toggle settings overlay", [this] {
+    if (!AllowDevOverlays())
+      return;
     if (settings_overlay_) {
       settings_overlay_.reset();
     } else {
@@ -417,6 +423,8 @@ void ReXApp::SetupOverlays(rex::ui::Presenter* presenter, rex::ui::ImmediateDraw
     }
   });
   rex::ui::RegisterBind("bind_achievements", "F7", "Toggle achievements overlay", [this] {
+    if (!AllowDevOverlays())
+      return;
     if (achievements_overlay_) {
       achievements_overlay_.reset();
     } else {

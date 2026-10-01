@@ -15,6 +15,10 @@
 #include <rex/system/flags.h>
 #include <rex/system/kernel_state.h>
 
+#include <algorithm>
+#include <cfloat>
+#include <cstring>
+
 #include <imgui.h>
 
 REXCVAR_DEFINE_BOOL(headless, false, "Kernel",
@@ -90,6 +94,7 @@ X_RESULT xeXamDispatchDialog(T* dialog, std::function<X_RESULT(T*)> close_callba
         app_context->CallInUIThreadSynchronous([&dialog, &fence]() { dialog->Then(&fence); })) {
       ++xam_dialogs_shown_;
       fence.Wait();
+      xeXamHoldInputUntilReleased();
       --xam_dialogs_shown_;
     } else {
       delete dialog;
@@ -132,6 +137,7 @@ X_RESULT xeXamDispatchDialogEx(T* dialog,
         app_context->CallInUIThreadSynchronous([&dialog, &fence]() { dialog->Then(&fence); })) {
       ++xam_dialogs_shown_;
       fence.Wait();
+      xeXamHoldInputUntilReleased();
       --xam_dialogs_shown_;
     } else {
       delete dialog;
@@ -208,6 +214,112 @@ u32 XamIsUIActive_entry() {
   return xeXamIsUIActive();
 }
 
+// The frame both system dialogs draw in (rex::ui::SystemDialogStyle): a panel
+// centred over the dimmed game, its sizes following the window's height, so
+// it reads the same at 720p as at 4K.
+struct DialogMetrics {
+  float body = 0.0f;   // body text height
+  float title = 0.0f;  // title text height
+  float width = 0.0f;  // panel width
+};
+
+DialogMetrics MeasureDialog(const ImGuiIO& io, const rex::ui::SystemDialogStyle& s) {
+  DialogMetrics m;
+  m.body = std::max(13.0f, io.DisplaySize.y * s.body_size);
+  m.title = std::max(m.body * 1.2f, io.DisplaySize.y * s.title_size);
+  m.width = std::clamp(io.DisplaySize.x * s.width, m.body * s.min_width_em, m.body * s.max_width_em);
+  m.width = std::min(m.width, io.DisplaySize.x - m.body * 2.0f);
+  return m;
+}
+
+constexpr int kDialogColors = 11;
+constexpr int kDialogVars = 7;
+
+// Pushes the panel's look and opens it. EndSystemDialog pops what this pushed
+// whether or not the panel opened.
+bool BeginSystemDialog(const char* id, const rex::ui::SystemDialogStyle& s, const DialogMetrics& m,
+                       const ImGuiIO& io) {
+  ImGui::PushFont(s.font, m.body);
+  ImGui::PushStyleColor(ImGuiCol_ModalWindowDimBg, s.dim);
+  ImGui::PushStyleColor(ImGuiCol_PopupBg, s.panel);
+  ImGui::PushStyleColor(ImGuiCol_Text, s.text);
+  ImGui::PushStyleColor(ImGuiCol_TextDisabled, s.muted);
+  ImGui::PushStyleColor(ImGuiCol_FrameBg, s.field);
+  ImGui::PushStyleColor(ImGuiCol_FrameBgHovered, s.field);
+  ImGui::PushStyleColor(ImGuiCol_FrameBgActive, s.field);
+  ImGui::PushStyleColor(ImGuiCol_Border, s.field_border);
+  ImGui::PushStyleColor(ImGuiCol_Button, s.button);
+  ImGui::PushStyleColor(ImGuiCol_ButtonHovered, s.button_hovered);
+  ImGui::PushStyleColor(ImGuiCol_ButtonActive, s.accent);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowPadding, ImVec2(m.body * 1.5f, m.body * 1.25f));
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowRounding, s.rounding);
+  ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 0.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FramePadding, ImVec2(m.body * 0.6f, m.body * 0.45f));
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameRounding, s.rounding * 0.6f);
+  ImGui::PushStyleVar(ImGuiStyleVar_FrameBorderSize, 1.0f);
+  ImGui::PushStyleVar(ImGuiStyleVar_ItemSpacing, ImVec2(m.body * 0.6f, m.body * 0.7f));
+  ImGui::SetNextWindowPos(ImVec2(io.DisplaySize.x * 0.5f, io.DisplaySize.y * 0.5f), ImGuiCond_Always,
+                          ImVec2(0.5f, 0.5f));
+  // The width is the panel's; the height follows what is in it.
+  ImGui::SetNextWindowSizeConstraints(ImVec2(m.width, 0.0f), ImVec2(m.width, io.DisplaySize.y));
+  return ImGui::BeginPopupModal(id, nullptr,
+                                ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize |
+                                    ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoSavedSettings |
+                                    ImGuiWindowFlags_AlwaysAutoResize);
+}
+
+void EndSystemDialog(bool open) {
+  if (open) {
+    ImGui::EndPopup();
+  }
+  ImGui::PopStyleVar(kDialogVars);
+  ImGui::PopStyleColor(kDialogColors);
+  ImGui::PopFont();
+}
+
+// The title, larger, with a short accent rule under it.
+void DrawDialogTitle(const std::string& title, const rex::ui::SystemDialogStyle& s,
+                     const DialogMetrics& m) {
+  ImGui::PushFont(s.font, m.title);
+  ImGui::PushStyleColor(ImGuiCol_Text, s.title);
+  ImGui::TextWrapped("%s", title.c_str());
+  ImGui::PopStyleColor();
+  ImGui::PopFont();
+  const ImVec2 at = ImGui::GetCursorScreenPos();
+  const float thickness = std::max(2.0f, m.body * 0.12f);
+  ImGui::GetWindowDrawList()->AddRectFilled(at, ImVec2(at.x + m.body * 3.0f, at.y + thickness),
+                                            ImGui::GetColorU32(s.accent));
+  ImGui::Dummy(ImVec2(0.0f, thickness));
+}
+
+float DialogButtonWidth(const char* label, const DialogMetrics& m) {
+  return std::max(m.body * 6.0f, ImGui::CalcTextSize(label).x + m.body * 1.6f);
+}
+
+// A button of the row; the one Enter answers wears the accent.
+bool DialogButton(const char* label, bool primary, const rex::ui::SystemDialogStyle& s,
+                  const DialogMetrics& m) {
+  if (primary) {
+    const ImVec4 lit(std::min(1.0f, s.accent.x * 1.15f), std::min(1.0f, s.accent.y * 1.15f),
+                     std::min(1.0f, s.accent.z * 1.15f), s.accent.w);
+    ImGui::PushStyleColor(ImGuiCol_Button, s.accent);
+    ImGui::PushStyleColor(ImGuiCol_ButtonHovered, lit);
+  }
+  const bool pressed = ImGui::Button(label, ImVec2(DialogButtonWidth(label, m), 0.0f));
+  if (primary) {
+    ImGui::PopStyleColor(2);
+  }
+  return pressed;
+}
+
+// Moves the cursor so a row this wide ends at the panel's right edge.
+void AlignRowRight(float row_width) {
+  const float avail = ImGui::GetContentRegionAvail().x;
+  if (avail > row_width) {
+    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - row_width);
+  }
+}
+
 class MessageBoxDialog : public XamDialog {
  public:
   MessageBoxDialog(rex::ui::ImGuiDrawer* imgui_drawer, std::string title, std::string description,
@@ -226,31 +338,47 @@ class MessageBoxDialog : public XamDialog {
   uint32_t chosen_button() const { return chosen_button_; }
 
   void OnDraw(ImGuiIO& io) override {
-    bool first_draw = false;
+    static constexpr const char* kId = "##xam_message_box";
+    const auto& style = imgui_drawer()->style().system_dialog;
+    const DialogMetrics m = MeasureDialog(io, style);
     if (!has_opened_) {
-      ImGui::OpenPopup(title_.c_str());
+      ImGui::OpenPopup(kId);
       has_opened_ = true;
-      first_draw = true;
     }
-    if (ImGui::BeginPopupModal(title_.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const bool open = BeginSystemDialog(kId, style, m, io);
+    bool chosen = false;
+    if (open) {
+      DrawDialogTitle(title_, style, m);
       if (description_.size()) {
-        ImGui::Text("%s", description_.c_str());
+        ImGui::TextWrapped("%s", description_.c_str());
       }
-      if (first_draw) {
-        ImGui::SetKeyboardFocusHere();
+      ImGui::Dummy(ImVec2(0.0f, m.body * 0.2f));
+      float row = 0.0f;
+      for (const auto& button : buttons_) {
+        row += DialogButtonWidth(button.c_str(), m) +
+               (row > 0.0f ? ImGui::GetStyle().ItemSpacing.x : 0.0f);
       }
+      AlignRowRight(row);
       for (size_t i = 0; i < buttons_.size(); ++i) {
-        if (ImGui::Button(buttons_[i].c_str())) {
-          chosen_button_ = static_cast<uint32_t>(i);
-          ImGui::CloseCurrentPopup();
-          Close();
+        if (i) {
+          ImGui::SameLine();
         }
-        ImGui::SameLine();
+        if (DialogButton(buttons_[i].c_str(), i == default_button_, style, m)) {
+          chosen_button_ = static_cast<uint32_t>(i);
+          chosen = true;
+        }
       }
-      ImGui::Spacing();
-      ImGui::Spacing();
-      ImGui::EndPopup();
-    } else {
+      if (!chosen &&
+          (ImGui::IsKeyPressed(ImGuiKey_Enter) || ImGui::IsKeyPressed(ImGuiKey_KeypadEnter))) {
+        chosen_button_ = default_button_;
+        chosen = true;
+      }
+      if (chosen) {
+        ImGui::CloseCurrentPopup();
+      }
+    }
+    EndSystemDialog(open);
+    if (!open || chosen) {
       Close();
     }
   }
@@ -366,42 +494,60 @@ class KeyboardInputDialog : public XamDialog {
   bool cancelled() const { return cancelled_; }
 
   void OnDraw(ImGuiIO& io) override {
+    static constexpr const char* kId = "##xam_keyboard";
+    static constexpr const char* kHint = "Enter to confirm, Esc to cancel";
+    const auto& style = imgui_drawer()->style().system_dialog;
+    const DialogMetrics m = MeasureDialog(io, style);
     bool first_draw = false;
     if (!has_opened_) {
-      ImGui::OpenPopup(title_.c_str());
+      ImGui::OpenPopup(kId);
       has_opened_ = true;
       first_draw = true;
     }
-    if (ImGui::BeginPopupModal(title_.c_str(), nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+    const bool open = BeginSystemDialog(kId, style, m, io);
+    bool accept = false;
+    bool cancel = false;
+    if (open) {
+      DrawDialogTitle(title_, style, m);
       if (description_.size()) {
         ImGui::TextWrapped("%s", description_.c_str());
       }
+      ImGui::SetNextItemWidth(-FLT_MIN);
       if (first_draw) {
         ImGui::SetKeyboardFocusHere();
       }
-      if (ImGui::InputText("##body", text_buffer_.data(), text_buffer_.size(),
-                           ImGuiInputTextFlags_EnterReturnsTrue)) {
-        text_ = std::string(text_buffer_.data(), text_buffer_.size());
-        cancelled_ = false;
-        ImGui::CloseCurrentPopup();
-        Close();
-      }
-      if (ImGui::Button("OK")) {
-        text_ = std::string(text_buffer_.data(), text_buffer_.size());
-        cancelled_ = false;
-        ImGui::CloseCurrentPopup();
-        Close();
-      }
+      accept = ImGui::InputTextWithHint("##text", "Type here", text_buffer_.data(),
+                                        text_buffer_.size(), ImGuiInputTextFlags_EnterReturnsTrue);
+      // How much room is left on the left; the keys and the buttons on the
+      // right.
+      const size_t used = strnlen(text_buffer_.data(), text_buffer_.size());
+      const size_t room = text_buffer_.size() > 0 ? text_buffer_.size() - 1 : 0;
+      ImGui::AlignTextToFramePadding();
+      ImGui::TextDisabled("%zu / %zu", used, room);
       ImGui::SameLine();
-      if (ImGui::Button("Cancel")) {
+      const float spacing = ImGui::GetStyle().ItemSpacing.x;
+      const float buttons_width =
+          DialogButtonWidth("Cancel", m) + spacing + DialogButtonWidth("OK", m);
+      AlignRowRight(ImGui::CalcTextSize(kHint).x + spacing * 2.0f + buttons_width);
+      ImGui::TextDisabled("%s", kHint);
+      ImGui::SameLine(0.0f, spacing * 2.0f);
+      cancel = DialogButton("Cancel", false, style, m);
+      ImGui::SameLine();
+      accept = DialogButton("OK", true, style, m) || accept;
+      cancel = !accept && (cancel || ImGui::IsKeyPressed(ImGuiKey_Escape));
+      if (accept) {
+        text_ = std::string(text_buffer_.data(), used);
+        cancelled_ = false;
+      } else if (cancel) {
         text_ = "";
         cancelled_ = true;
-        ImGui::CloseCurrentPopup();
-        Close();
       }
-      ImGui::Spacing();
-      ImGui::EndPopup();
-    } else {
+      if (accept || cancel) {
+        ImGui::CloseCurrentPopup();
+      }
+    }
+    EndSystemDialog(open);
+    if (!open || accept || cancel) {
       Close();
     }
   }

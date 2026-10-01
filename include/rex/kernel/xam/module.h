@@ -23,6 +23,16 @@ namespace xam {
 
 bool xeXamIsUIActive();
 
+/// Whether the game's input is held off: a system dialog (keyboard, message
+/// box) is up, or one has just closed and the input that closed it has not
+/// been let go yet. The pad the game polls reads neutral meanwhile, as it does
+/// on the console while the system UI has the controller.
+bool xeXamInputBlocked();
+/// Called as a system dialog closes (xam_ui.cpp).
+void xeXamHoldInputUntilReleased();
+/// Called by each pad poll with whether the real state was at rest.
+void xeXamNoteInputReleased(bool released);
+
 class XamModule : public system::KernelModule {
  public:
   XamModule(Runtime* emulator, system::KernelState* kernel_state);

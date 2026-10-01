@@ -290,6 +290,13 @@ class Window {
   /// Valid after Open() returns successfully.
   virtual void* GetNativeWindowHandle() const { return nullptr; }
 
+  /// Exclusive fullscreen at the display mode nearest width x height (the
+  /// smallest mode of the window's display that holds it), instead of the
+  /// borderless desktop mode. Valid after Open(); the mode stays with the
+  /// window, so a later fullscreen toggle keeps it. Returns false when no
+  /// such mode exists or the switch is refused, leaving the window as it was.
+  virtual bool SetFullscreenDisplayMode(uint32_t width, uint32_t height) { return false; }
+
   // Desired state stored by the common Window, externally modifiable, read-only
   // in the implementation.
   void SetMainMenu(std::unique_ptr<MenuItem> new_main_menu);
